@@ -379,6 +379,9 @@ function App() {
     const peerConnection = useRef(null);
     const dataChannelRef = useRef(null);
 
+    // File Transfer State
+    const [transferProgress, setTransferProgress] = useState(null); // { filename, progress: 0-100, type: 'send'|'receive' }
+
     // Verificação Inicial de Função
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
@@ -667,7 +670,7 @@ function App() {
             dataChannelRef.current = dc;
 
             dc.onopen = () => console.log('[HOST] DataChannel "input" OPEN');
-            dc.onmessage = (e) => {
+            dc.onmessage = async (e) => {
                 if (!window.electronAPI?.robotControl) {
                     console.error('[HOST] electronAPI.robotControl NOT AVAILABLE!');
                     return;
@@ -682,24 +685,49 @@ function App() {
                         return;
                     }
 
-                    // File Transfer (Client -> Host)
-                    if (cmd.type === 'file-transfer') {
-                        console.log(`[FILE] Receiving ${cmd.filename}...`);
-                        if (window.electronAPI?.saveFile) {
-                            window.electronAPI.saveFile(cmd.filename, cmd.dataBase64)
-                                .then(res => {
-                                    if (res.success) {
-                                        console.log('[FILE] Saved to:', res.path);
-                                        // Optional: Send confirmation back
-                                    } else {
-                                        console.error('[FILE] Save failed:', res.error);
-                                    }
-                                });
-                        } else {
-                            console.warn('[FILE] Host cannot save files (no electronAPI)');
+                    // File Transfer Slicing (Client -> Host)
+                    if (cmd.type === 'file-start') {
+                        console.log(`[FILE] Starting receive: ${cmd.filename}`);
+                        if (window.electronAPI?.fileStart) {
+                            const res = await window.electronAPI.fileStart(cmd.filename, cmd.size);
+                            if (res.success) {
+                                window.currentFileId = res.fileId;
+                                window.fileTransferMeta = {
+                                    totalChunks: cmd.totalChunks,
+                                    currentChunk: 0,
+                                    filename: cmd.filename
+                                };
+                                setTransferProgress({ filename: cmd.filename, progress: 0, type: 'receive' });
+                            }
                         }
                         return;
                     }
+                    if (cmd.type === 'file-chunk') {
+                        if (window.currentFileId && window.electronAPI?.fileChunk) {
+                            await window.electronAPI.fileChunk(window.currentFileId, cmd.chunkBase64);
+
+                            // Update Progress
+                            if (window.fileTransferMeta) {
+                                window.fileTransferMeta.currentChunk++;
+                                const percent = Math.min(100, Math.round((window.fileTransferMeta.currentChunk / window.fileTransferMeta.totalChunks) * 100));
+                                setTransferProgress(prev => prev ? ({ ...prev, progress: percent }) : null);
+                            }
+                        }
+                        return;
+                    }
+                    if (cmd.type === 'file-end') {
+                        console.log(`[FILE] File receive completed.`);
+                        if (window.currentFileId && window.electronAPI?.fileClose) {
+                            await window.electronAPI.fileClose(window.currentFileId);
+                            window.currentFileId = null;
+                            window.fileTransferMeta = null;
+                            setTransferProgress(null);
+                        }
+                        return;
+                    }
+
+                    // Legacy single-shot file transfer (Backward compatibility?)
+                    // Keep or remove? Removing to enforce chunking.
 
                     console.log('[HOST] ✅ DataChannel CMD:', cmd.type, cmd);
                     window.electronAPI.robotControl(cmd);
@@ -905,24 +933,69 @@ function App() {
                         onChange={(e) => {
                             const file = e.target.files[0];
                             if (file && dataChannelRef.current) {
+                                const CHUNK_SIZE = 16 * 1024; // 16KB chunks
+                                const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
                                 const reader = new FileReader();
+                                let offset = 0;
+                                let chunkIndex = 0;
+
+                                // 1. Send File Start Metadata
+                                dataChannelRef.current.send(JSON.stringify({
+                                    type: 'file-start',
+                                    filename: file.name,
+                                    size: file.size,
+                                    totalChunks
+                                }));
+
+                                setTransferProgress({ filename: file.name, progress: 0, type: 'send' });
+
+                                const readNextChunk = () => {
+                                    const slice = file.slice(offset, offset + CHUNK_SIZE);
+                                    reader.readAsArrayBuffer(slice);
+                                };
+
                                 reader.onload = (evt) => {
+                                    if (dataChannelRef.current?.readyState !== 'open') {
+                                        setTransferProgress(null);
+                                        return;
+                                    }
+
                                     const arrayBuffer = evt.target.result;
                                     const base64 = btoa(
                                         new Uint8Array(arrayBuffer)
                                             .reduce((data, byte) => data + String.fromCharCode(byte), '')
                                     );
 
-                                    // Send Metadata
+                                    // 2. Send Chunk
                                     dataChannelRef.current.send(JSON.stringify({
-                                        type: 'file-transfer',
-                                        filename: file.name,
-                                        dataBase64: base64 // Sending whole file for simplicity in v1. 
-                                        // TODO: Chunking for large files > 1MB
+                                        type: 'file-chunk',
+                                        chunkBase64: base64,
+                                        chunkIndex
                                     }));
-                                    alert(`Enviando ${file.name}...`);
+
+                                    offset += CHUNK_SIZE;
+                                    chunkIndex++;
+
+                                    // Update Progress
+                                    const percent = Math.min(100, Math.round((offset / file.size) * 100));
+                                    setTransferProgress(prev => prev ? ({ ...prev, progress: percent }) : null);
+
+                                    if (offset < file.size) {
+                                        // Send next chunk immediately (or use setTimeout(0) to yield)
+                                        setTimeout(readNextChunk, 2);
+                                    } else {
+                                        // 3. Send File End
+                                        dataChannelRef.current.send(JSON.stringify({
+                                            type: 'file-end',
+                                            totalChunks // Verification
+                                        }));
+                                        setTransferProgress(null);
+                                        // Optional: Toast success
+                                    }
                                 };
-                                reader.readAsArrayBuffer(file);
+
+                                readNextChunk();
                             }
                         }}
                     />
@@ -936,6 +1009,28 @@ function App() {
                     >
                         📂 Enviar Arquivo
                     </button>
+                </div>
+            )}
+
+            {/* PROGRESS BAR OVERLAY */}
+            {transferProgress && (
+                <div style={{
+                    position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+                    background: 'rgba(0,0,0,0.9)', padding: '20px', borderRadius: '8px',
+                    color: 'white', zIndex: 9000, textAlign: 'center', minWidth: '300px',
+                    boxShadow: '0 0 20px rgba(0,0,0,0.5)', border: '1px solid #333'
+                }}>
+                    <h3 style={{ margin: '0 0 10px 0', fontSize: '18px' }}>
+                        {transferProgress.type === 'send' ? '📤 Enviando' : '📥 Recebendo'} Arquivo...
+                    </h3>
+                    <p style={{ margin: '0 0 15px 0', fontSize: '14px', opacity: 0.8 }}>{transferProgress.filename}</p>
+                    <div style={{ width: '100%', height: '10px', background: '#333', borderRadius: '5px', overflow: 'hidden' }}>
+                        <div style={{
+                            width: `${transferProgress.progress}%`, height: '100%',
+                            background: '#4CAF50', transition: 'width 0.2s ease-in-out'
+                        }} />
+                    </div>
+                    <p style={{ margin: '10px 0 0 0', fontWeight: 'bold' }}>{transferProgress.progress}%</p>
                 </div>
             )}
 

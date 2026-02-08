@@ -164,36 +164,71 @@ ipcMain.handle('write-clipboard', (event, text) => {
 
 // ========== FILE TRANSFER HANDLERS ==========
 
-ipcMain.handle('save-file', async (event, { filename, dataBase64 }) => {
+// ========== FILE TRANSFER STREAMING HANDLERS ==========
+// Using a simple in-memory map for open write streams
+const openFileStreams = new Map();
+
+ipcMain.handle('file-start', async (event, { filename, size }) => {
     try {
         const downloadPath = app.getPath('downloads');
-        const filePath = path.join(downloadPath, filename);
+        let finalPath = path.join(downloadPath, filename);
+        const fs = require('fs');
 
         // Ensure unique filename
-        // Simple logic: if exists, prepend timestamp
-        let finalPath = filePath;
-        const fs = require('fs');
-        if (fs.existsSync(filePath)) {
+        if (fs.existsSync(finalPath)) {
             finalPath = path.join(downloadPath, `${Date.now()}_${filename}`);
         }
 
-        const buffer = Buffer.from(dataBase64, 'base64');
-        await require('fs').promises.writeFile(finalPath, buffer);
-        console.log('[FILE] Saved to:', finalPath);
+        const stream = fs.createWriteStream(finalPath);
+        const fileId = Date.now().toString(); // Simple ID
 
-        // Notify user via tray or notification?
-        if (tray) {
-            tray.displayBalloon({
-                title: 'Arquivo Recebido',
-                content: `Salvo em Downloads: ${path.basename(finalPath)}`
-            });
-        }
-        return { success: true, path: finalPath };
+        openFileStreams.set(fileId, { stream, path: finalPath });
+
+        console.log(`[FILE] Started stream: ${finalPath} (ID: ${fileId})`);
+        return { success: true, fileId };
     } catch (e) {
-        console.error('[FILE] Save error:', e);
+        console.error('[FILE] Start error:', e);
         return { success: false, error: e.message };
     }
 });
+
+ipcMain.handle('file-chunk', async (event, { fileId, chunkBase64 }) => {
+    try {
+        const fileData = openFileStreams.get(fileId);
+        if (!fileData) return { success: false, error: 'File stream not found' };
+
+        const buffer = Buffer.from(chunkBase64, 'base64');
+        const canWrite = fileData.stream.write(buffer);
+        return { success: true };
+    } catch (e) {
+        console.error('[FILE] Chunk error:', e);
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('file-close', async (event, { fileId }) => {
+    try {
+        const fileData = openFileStreams.get(fileId);
+        if (!fileData) return { success: false, error: 'File stream not found' };
+
+        fileData.stream.end();
+        openFileStreams.delete(fileId);
+
+        console.log(`[FILE] Completed: ${fileData.path}`);
+
+        if (tray) {
+            tray.displayBalloon({
+                title: 'Arquivo Recebido',
+                content: `Salvo em Downloads: ${path.basename(fileData.path)}`
+            });
+        }
+        return { success: true, path: fileData.path };
+    } catch (e) {
+        console.error('[FILE] Close error:', e);
+        return { success: false, error: e.message };
+    }
+});
+
 
 // ========== WINDOW MANAGEMENT ==========
 

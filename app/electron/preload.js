@@ -19,6 +19,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // File Transfer
     saveFile: (filename, dataBase64) => ipcRenderer.invoke('save-file', { filename, dataBase64 }),
 
+    // File Streaming (Chunked)
+    fileStart: (filename, size) => ipcRenderer.invoke('file-start', { filename, size }),
+    fileChunk: (fileId, chunkBase64) => ipcRenderer.invoke('file-chunk', { fileId, chunkBase64 }),
+    fileClose: (fileId) => ipcRenderer.invoke('file-close', { fileId }),
+
     // Generic IPC
     on: (channel, callback) => ipcRenderer.on(channel, (event, ...args) => callback(...args)),
     send: (channel, data) => ipcRenderer.send(channel, data)
