@@ -398,6 +398,8 @@ function App() {
     // License State
     const [license, setLicense] = useState(null); // { valid: true, type: 'trial|pro', remainingHours, hwid }
     const [activationKey, setActivationKey] = useState('');
+    const [showActivationModal, setShowActivationModal] = useState(false);
+    const [trialTimer, setTrialTimer] = useState('Calculando...');
 
     useEffect(() => {
         if (window.electronAPI?.checkLicense) {
@@ -408,6 +410,24 @@ function App() {
         }
     }, []);
 
+    // Timer Countdown
+    useEffect(() => {
+        if (!license || license.type !== 'trial') return;
+
+        const updateTimer = () => {
+            if (license.remainingHours <= 0) return setTrialTimer('Expirado');
+
+            // We only have hours from backend, so we estimate. 
+            // Better would be to have startDate in frontend, but we used remainingHours.
+            // Let's just show Hours for now to avoid complexity without strict sync.
+            setTrialTimer(`${license.remainingHours} Horas Restantes`);
+        };
+
+        updateTimer();
+        const interval = setInterval(updateTimer, 60000); // 1 min update
+        return () => clearInterval(interval);
+    }, [license]);
+
     const handleActivate = async () => {
         if (!activationKey) return showToast('Digite o Serial!', 'error');
         if (window.electronAPI?.activateLicense) {
@@ -415,11 +435,46 @@ function App() {
             if (success) {
                 showToast('Ativado com Sucesso! 🚀', 'success');
                 setLicense(prev => ({ ...prev, valid: true, type: 'pro' }));
+                setShowActivationModal(false);
             } else {
                 showToast('Serial Inválido!', 'error');
             }
         }
     };
+
+    // Activation Modal Component
+    const ActivationModal = () => (
+        <div style={{
+            position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
+            background: 'rgba(0,0,0,0.9)', zIndex: 10000,
+            display: 'flex', alignItems: 'center', justifyContent: 'center'
+        }}>
+            <div style={{
+                background: '#222', padding: '30px', borderRadius: '10px',
+                textAlign: 'center', border: '1px solid #4CAF50',
+                maxWidth: '400px', width: '90%'
+            }}>
+                <h2 style={{ color: '#4CAF50' }}>🔐 Ativar VConectY PRO</h2>
+                <div style={{ margin: '20px 0', padding: '15px', background: '#111', borderRadius: '5px' }}>
+                    <p style={{ margin: 0, fontSize: '0.8rem', color: '#888' }}>SEU HWID:</p>
+                    <h3 style={{ margin: '5px 0', color: '#fff', letterSpacing: '1px' }}>{license?.hwid || 'Carregando...'}</h3>
+                </div>
+
+                <input
+                    className="modern-input"
+                    placeholder="AAAA-BBBB-CCCC-DDDD"
+                    value={activationKey}
+                    onChange={e => setActivationKey(e.target.value)}
+                    style={{ textAlign: 'center', marginBottom: '15px', width: '100%', fontSize: '1.1rem' }}
+                />
+
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    <button className="btn-secondary" onClick={() => setShowActivationModal(false)} style={{ flex: 1 }}>Cancelar</button>
+                    <button className="btn-primary" onClick={handleActivate} style={{ flex: 1 }}>ATIVAR</button>
+                </div>
+            </div>
+        </div>
+    );
 
     // LOCK SCREEN (If License Expired)
     if (license?.valid === false && license.type === 'expired') {
@@ -1133,6 +1188,7 @@ function App() {
                 <TitleBar minimize={() => window.electronAPI.minimize()} close={() => window.electronAPI.close()} />
             )}
 
+            {/* SETTINGS MODAL REMOVED FOR PRODUCTION */}
             {/* REQUEST MODAL */}
             {requestModal && (
                 <div style={{
@@ -1159,15 +1215,29 @@ function App() {
                     <div style={{ textAlign: 'center', marginBottom: 20, position: 'relative' }}>
                         <h1 style={{ fontSize: '1.8rem', margin: 0 }}>VConectY <span style={{ color: '#4CAF50' }}>Global</span></h1>
                         <small>{status}</small>
+
+                        {/* TRIAL STATUS BAR */}
                         {license?.type === 'trial' && (
                             <div style={{
-                                position: 'absolute', top: 0, right: 0,
-                                background: 'orange', color: 'black', padding: '2px 8px',
-                                borderRadius: '4px', fontSize: '10px', fontWeight: 'bold'
+                                marginTop: '10px',
+                                background: '#333', padding: '8px', borderRadius: '5px',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '15px',
+                                border: '1px solid #555'
                             }}>
-                                DEMO: {license.remainingHours}h
+                                <span style={{ color: 'orange', fontWeight: 'bold' }}>⏳ DESCONTAGEM: {trialTimer}</span>
+                                <button
+                                    onClick={() => setShowActivationModal(true)}
+                                    style={{
+                                        background: '#4CAF50', color: 'white', border: 'none',
+                                        padding: '4px 10px', borderRadius: '3px', cursor: 'pointer',
+                                        fontWeight: 'bold', fontSize: '0.8rem'
+                                    }}
+                                >
+                                    🔑 ATIVAR AGORA
+                                </button>
                             </div>
                         )}
+
                         {license?.type === 'pro' && (
                             <div style={{
                                 position: 'absolute', top: 0, right: 0,
