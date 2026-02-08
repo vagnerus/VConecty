@@ -67,7 +67,7 @@ function App() {
 
     // Server
     const [serverUrl, setServerUrl] = useState(
-        localStorage.getItem('vconecty_server') || 'https://vconecty-server-demo.onrender.com' // Placeholder/Default
+        localStorage.getItem('vconecty_server') || 'https://vconecty.onrender.com'
     );
 
     // Connection State
@@ -172,8 +172,6 @@ function App() {
         if (!targetId) return alert("Digite o ID do Parceiro!");
         const targetClean = targetId.replace(/\s/g, '');
 
-        addToRecents(targetClean);
-
         // Open separate window for session
         if (window.electronAPI && window.electronAPI.createSessionWindow) {
             window.electronAPI.createSessionWindow(targetClean);
@@ -183,14 +181,24 @@ function App() {
     };
 
     const startHostSession = async (targetId, currentSocket) => {
+        console.log('[HOST] Starting host session for target:', targetId);
         const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
         peerConnection.current = pc;
 
         pc.onicecandidate = e => e.candidate && currentSocket.emit('ice-candidate', { target: targetId, candidate: e.candidate });
 
         try {
+            console.log('[HOST] Getting screen sources...');
             const sources = await window.electronAPI.getSources();
+            console.log('[HOST] Found', sources.length, 'sources:', sources);
+
+            if (sources.length === 0) {
+                alert("Nenhuma tela disponível para captura!");
+                return;
+            }
+
             const source = sources[0];
+            console.log('[HOST] Using source:', source.name);
 
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: false,
@@ -204,16 +212,21 @@ function App() {
                 }
             });
 
-            stream.getTracks().forEach(t => pc.addTrack(t, stream));
+            console.log('[HOST] Screen captured! Stream tracks:', stream.getTracks().length);
+            stream.getTracks().forEach(t => {
+                console.log('[HOST] Adding track:', t.kind, t.id);
+                pc.addTrack(t, stream);
+            });
 
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
-            currentSocket.emit('offer', { target: targetId, sdp: offer });
+            console.log('[HOST] Sending offer to:', targetId);
+            currentSocket.emit('offer', { target: targetId, sdp: offer, from: myId.replace(/\s/g, '') });
 
             setStatus('Transmitindo...');
         } catch (e) {
-            console.error(e);
-            alert("Erro captura: " + e.message);
+            console.error('[HOST] Erro captura:', e);
+            alert("Erro ao capturar tela: " + e.message);
         }
     };
 
@@ -222,22 +235,32 @@ function App() {
         if (!pc && type !== 'offer') return;
 
         if (type === 'offer') {
+            console.log('[CLIENT] Received offer from:', data.from);
             const newPc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
             peerConnection.current = newPc;
             newPc.onicecandidate = e => e.candidate && s.emit('ice-candidate', { target: data.from, candidate: e.candidate });
             newPc.ontrack = e => {
-                if (remoteVideoRef.current) remoteVideoRef.current.srcObject = e.streams[0];
+                console.log('[CLIENT] Received track:', e.track.kind, 'streams:', e.streams.length);
+                if (remoteVideoRef.current) {
+                    console.log('[CLIENT] Setting video srcObject');
+                    remoteVideoRef.current.srcObject = e.streams[0];
+                } else {
+                    console.error('[CLIENT] remoteVideoRef is null!');
+                }
             };
 
             await newPc.setRemoteDescription(data.sdp);
             const answer = await newPc.createAnswer();
             await newPc.setLocalDescription(answer);
-            s.emit('answer', { target: data.from, sdp: answer });
+            console.log('[CLIENT] Sending answer to:', data.from);
+            s.emit('answer', { target: data.from, sdp: answer, from: myId.replace(/\s/g, '') });
             setStatus("Conectado! 💻");
         } else if (type === 'answer') {
+            console.log('[HOST] Received answer');
             await pc.setRemoteDescription(data.sdp);
             setStatus("Transmitindo 📡");
         } else if (type === 'ice') {
+            console.log('[ICE] Adding candidate');
             await pc.addIceCandidate(data.candidate);
         }
     };
