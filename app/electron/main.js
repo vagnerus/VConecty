@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer, screen, Tray, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, screen, Tray, Menu, clipboard } = require('electron');
 const path = require('path');
 const windowsController = require('./robot-control.cjs');
 
@@ -148,6 +148,19 @@ function mapKey(key) {
 
     return keyMap[key] || key;
 }
+
+
+
+// ========== CLIPBOARD SYNC HANDLERS ==========
+
+ipcMain.handle('read-clipboard', () => {
+    return clipboard.readText();
+});
+
+ipcMain.handle('write-clipboard', (event, text) => {
+    clipboard.writeText(text);
+    return true;
+});
 
 // ========== WINDOW MANAGEMENT ==========
 

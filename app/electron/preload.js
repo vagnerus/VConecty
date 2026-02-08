@@ -12,6 +12,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     close: () => ipcRenderer.send('window-close'),
     createSessionWindow: (targetId, password) => ipcRenderer.send('create-session-window', { targetId, password }),
 
+    // Clipboard Synchronization
+    readClipboard: () => ipcRenderer.invoke('read-clipboard'),
+    writeClipboard: (text) => ipcRenderer.invoke('write-clipboard', text),
+
     // Generic IPC
     on: (channel, callback) => ipcRenderer.on(channel, (event, ...args) => callback(...args)),
     send: (channel, data) => ipcRenderer.send(channel, data)

@@ -87,7 +87,45 @@ const DPad = ({ dataChannelRef }) => {
 };
 
 const FullScreenSession = ({ videoRef, dataChannelRef, setDebugInfo, onDisconnect, onReconnect, status }) => {
-    // ... useEffect ...
+    // Clipboard Sync (Client Side)
+    useEffect(() => {
+        const dc = dataChannelRef.current;
+        if (!dc) return;
+
+        const handleMessage = async (e) => {
+            try {
+                const data = JSON.parse(e.data);
+                if (data.type === 'clipboard-update') {
+                    console.log('[CLIPBOARD] Received update from host');
+                    await navigator.clipboard.writeText(data.text);
+                    // Optional: Show toast
+                }
+            } catch (err) {
+                // Ignore non-JSON messages
+            }
+        };
+
+        // Listen for DC messages (we need to hook into existing onmessage or add new listener if creating new DC?)
+        // Note: The DC is created in handleWebRTC. We can't easily add listener here if ref changes.
+        // BETTER APPROACH: Handle 'clipboard-update' in the existing onmessage handler in handleWebRTC.
+        // But for sending 'paste', we can do it here.
+
+    }, [dataChannelRef.current]);
+
+    // Capture Paste (Ctrl+V) on the container
+    useEffect(() => {
+        const handlePaste = (e) => {
+            const text = e.clipboardData.getData('text');
+            if (text && dataChannelRef.current?.readyState === 'open') {
+                console.log('[CLIPBOARD] Sending paste to host:', text.substring(0, 20) + '...');
+                dataChannelRef.current.send(JSON.stringify({ type: 'clipboard-set', text }));
+                e.preventDefault(); // Prevent double paste if input focused
+            }
+        };
+
+        window.addEventListener('paste', handlePaste);
+        return () => window.removeEventListener('paste', handlePaste);
+    }, []);
 
     return (
         <div style={{
@@ -636,12 +674,40 @@ function App() {
                 }
                 try {
                     const cmd = JSON.parse(e.data);
-                    console.log('[HOST] ✅ DataChannel CMD:', cmd.type, cmd); // VERBOSE ENABLED FOR DEBUG
+
+                    // Clipboard Set (Client -> Host)
+                    if (cmd.type === 'clipboard-set') {
+                        console.log('[CLIPBOARD] Writing to host clipboard');
+                        window.electronAPI.writeClipboard(cmd.text);
+                        return;
+                    }
+
+                    console.log('[HOST] ✅ DataChannel CMD:', cmd.type, cmd);
                     window.electronAPI.robotControl(cmd);
                 } catch (err) {
                     console.error('[HOST] Invalid robot command:', err);
                 }
             };
+
+            // Start Clipboard Polling (Host -> Client)
+            let lastClipboard = '';
+            const clipboardInterval = setInterval(async () => {
+                try {
+                    const text = await window.electronAPI.readClipboard();
+                    if (text && text !== lastClipboard) {
+                        lastClipboard = text;
+                        console.log('[CLIPBOARD] Syncing to client...');
+                        if (dc.readyState === 'open') {
+                            dc.send(JSON.stringify({ type: 'clipboard-update', text }));
+                        }
+                    }
+                } catch (e) {
+                    // Ignore errors (e.g. if minimized or API not ready)
+                }
+            }, 1000);
+
+            // Clean up interval on close
+            dc.onclose = () => clearInterval(clipboardInterval);
 
             const offer = await pc.createOffer({
                 offerToReceiveVideo: false,
@@ -728,7 +794,16 @@ function App() {
                     console.log('[CLIENT] ❌ DataChannel CLOSED');
                     setDebugInfo(prev => ({ ...prev, dcStatus: 'closed' }));
                 };
-                dc.onmessage = (msg) => console.log('[CLIENT] DC Msg:', msg.data);
+                dc.onmessage = (msg) => {
+                    try {
+                        const data = JSON.parse(msg.data);
+                        if (data.type === 'clipboard-update') {
+                            console.log('[CLIPBOARD] Received update from host');
+                            navigator.clipboard.writeText(data.text).catch(err => console.error('Clipboard write failed', err));
+                        }
+                    } catch (e) { }
+                    console.log('[CLIENT] DC Msg:', msg.data);
+                };
             };
 
             // DEFINIR DESCRIÇÃO REMOTA !IMPORTANTE
