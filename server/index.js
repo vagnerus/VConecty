@@ -15,6 +15,9 @@ const io = new Server(server, {
     }
 });
 
+// Store active hosts
+const hosts = new Map();
+
 io.on('connection', (socket) => {
     console.log(`User connected: ${socket.id}`);
 
