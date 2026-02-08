@@ -1216,8 +1216,8 @@ function App() {
                         <h1 style={{ fontSize: '1.8rem', margin: 0 }}>VConectY <span style={{ color: '#4CAF50' }}>Global</span></h1>
                         <small>{status}</small>
 
-                        {/* TRIAL STATUS BAR */}
-                        {license?.type === 'trial' && (
+                        {/* TRIAL STATUS BAR - Always show if not PRO */}
+                        {license?.type !== 'pro' && (
                             <div style={{
                                 marginTop: '10px',
                                 background: '#333', padding: '8px', borderRadius: '5px',
