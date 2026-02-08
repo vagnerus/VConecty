@@ -11,5 +11,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     on: (channel, callback) => ipcRenderer.on(channel, (event, ...args) => callback(...args)),
     send: (channel, data) => ipcRenderer.send(channel, data),
     createSessionWindow: (targetId, password) => ipcRenderer.invoke('create-session-window', targetId, password),
-    robotControl: (data) => ipcRenderer.send('robot-control', data)
+    robotControl: (data) => ipcRenderer.send('robot-control', data),
+    // License API
+    checkLicense: () => ipcRenderer.invoke('license-status'),
+    activateLicense: (serial) => ipcRenderer.invoke('license-activate', serial)
 });

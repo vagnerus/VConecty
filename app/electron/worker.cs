@@ -1,3 +1,8 @@
+/**
+ * VConectY - Worker de Controle (C#)
+ * Desenvolvido por: 100% Vagner Oliveira ~ FlasH
+ * Copyright (c) 2026
+ */
 using System;
 using System.Runtime.InteropServices;
 using System.Threading;

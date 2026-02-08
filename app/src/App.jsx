@@ -1,4 +1,9 @@
-import { useState, useEffect, useRef } from 'react'
+/**
+ * VConectY - Acesso Remoto
+ * Desenvolvido por: 100% Vagner Oliveira ~ FlasH
+ * Todos os direitos reservados.
+ */
+import React, { useEffect, useRef, useState } from 'react';
 import io from 'socket.io-client'
 import { generateKeyPair, exportPublicKey, sha256 } from './security'
 
@@ -389,6 +394,62 @@ function App() {
         setToast({ message, type });
         setTimeout(() => setToast(null), 3000);
     };
+
+    // License State
+    const [license, setLicense] = useState(null); // { valid: true, type: 'trial|pro', remainingHours, hwid }
+    const [activationKey, setActivationKey] = useState('');
+
+    useEffect(() => {
+        if (window.electronAPI?.checkLicense) {
+            window.electronAPI.checkLicense().then(status => {
+                console.log('[LICENSE] Status:', status);
+                setLicense(status);
+            });
+        }
+    }, []);
+
+    const handleActivate = async () => {
+        if (!activationKey) return showToast('Digite o Serial!', 'error');
+        if (window.electronAPI?.activateLicense) {
+            const success = await window.electronAPI.activateLicense(activationKey.trim());
+            if (success) {
+                showToast('Ativado com Sucesso! 🚀', 'success');
+                setLicense(prev => ({ ...prev, valid: true, type: 'pro' }));
+            } else {
+                showToast('Serial Inválido!', 'error');
+            }
+        }
+    };
+
+    // LOCK SCREEN (If License Expired)
+    if (license?.valid === false && license.type === 'expired') {
+        return (
+            <div style={{
+                height: '100vh', display: 'flex', flexDirection: 'column',
+                alignItems: 'center', justifyContent: 'center', background: '#111', color: 'white'
+            }}>
+                <h1 style={{ color: 'red', fontSize: '3rem' }}>TESTES FINALIZADOS</h1>
+                <p style={{ fontSize: '1.2rem', opacity: 0.8 }}>O período de avaliação de 3 dias expirou.</p>
+
+                <div style={{ margin: '30px 0', padding: '20px', background: '#222', borderRadius: '8px', textAlign: 'center' }}>
+                    <p style={{ margin: 0, fontSize: '0.9rem', opacity: 0.6 }}>SEU CÓDIGO DE HARDWARE (HWID):</p>
+                    <h2 style={{ letterSpacing: '2px', color: '#4CAF50', userSelect: 'all' }}>{license.hwid}</h2>
+                    <p style={{ fontSize: '0.8rem', opacity: 0.5 }}>Envie este código para ativar sua licença.</p>
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    <input
+                        className="modern-input"
+                        placeholder="AAAA-BBBB-CCCC-DDDD"
+                        value={activationKey}
+                        onChange={e => setActivationKey(e.target.value)}
+                        style={{ textAlign: 'center', letterSpacing: '1px' }}
+                    />
+                    <button className="btn-primary" onClick={handleActivate}>ATIVAR</button>
+                </div>
+            </div>
+        );
+    }
 
     // Verificação Inicial de Função
     useEffect(() => {
@@ -1098,6 +1159,24 @@ function App() {
                     <div style={{ textAlign: 'center', marginBottom: 20, position: 'relative' }}>
                         <h1 style={{ fontSize: '1.8rem', margin: 0 }}>VConectY <span style={{ color: '#4CAF50' }}>Global</span></h1>
                         <small>{status}</small>
+                        {license?.type === 'trial' && (
+                            <div style={{
+                                position: 'absolute', top: 0, right: 0,
+                                background: 'orange', color: 'black', padding: '2px 8px',
+                                borderRadius: '4px', fontSize: '10px', fontWeight: 'bold'
+                            }}>
+                                DEMO: {license.remainingHours}h
+                            </div>
+                        )}
+                        {license?.type === 'pro' && (
+                            <div style={{
+                                position: 'absolute', top: 0, right: 0,
+                                color: '#4CAF50', fontSize: '10px', fontWeight: 'bold',
+                                border: '1px solid #4CAF50', padding: '2px 6px', borderRadius: '4px'
+                            }}>
+                                PRO 💎
+                            </div>
+                        )}
                     </div>
 
                     <div className="main-grid">

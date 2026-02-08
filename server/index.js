@@ -1,3 +1,8 @@
+/**
+ * VConectY - Servidor de Sinalização
+ * Desenvolvido por: 100% Vagner Oliveira ~ FlasH
+ * Copyright (c) 2026
+ */
 const express = require('express');
 const app = express();
 const http = require('http');

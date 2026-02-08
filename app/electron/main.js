@@ -1,8 +1,103 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer, screen, Tray, Menu, clipboard } = require('electron');
+/**
+ * VConectY - Processo Principal (Electron)
+ * Desenvolvido por: 100% Vagner Oliveira ~ FlasH
+ * Copyright (c) 2026
+ */
+const { app, BrowserWindow, ipcMain, desktopCapturer, shell, clipboard, dialog } = require('electron');
 const path = require('path');
 const windowsController = require('./robot-control.cjs');
 
+const os = require('os');
+const crypto = require('crypto');
+const fs = require('fs');
+
 console.log('[MAIN] Initialized with robot-control.cjs');
+
+// --- LICENSING SYSTEM ---
+const SECRET_KEY = "VCONECTY_SECRET_MASTER_KEY_2026";
+const LICENSE_FILE = path.join(app.getPath('userData'), 'vconecty.lic');
+
+class LicenseManager {
+    constructor() {
+        this.status = this.loadLicense();
+    }
+
+    getHardwareId() {
+        const raw = `${os.hostname()}-${os.platform()}-${os.arch()}-${os.cpus()[0]?.model || 'unk'}`;
+        return crypto.createHash('sha256').update(raw).digest('hex').toUpperCase().substring(0, 16);
+    }
+
+    generateSerial(hwid) {
+        // HMAC-SHA256 signature of HWID using Secret
+        const hmac = crypto.createHmac('sha256', SECRET_KEY);
+        hmac.update(hwid);
+        const signature = hmac.digest('hex').toUpperCase();
+        // Format: AAAA-BBBB-CCCC-DDDD
+        return `${signature.substring(0, 4)}-${signature.substring(4, 8)}-${signature.substring(8, 12)}-${signature.substring(12, 16)}`;
+    }
+
+    loadLicense() {
+        try {
+            if (fs.existsSync(LICENSE_FILE)) {
+                const data = JSON.parse(fs.readFileSync(LICENSE_FILE, 'utf8'));
+                return data;
+            }
+        } catch (e) {
+            console.error('[LICENSE] Error loading:', e);
+        }
+        // New Trial
+        return {
+            type: 'trial',
+            startDate: Date.now(),
+            activated: false
+        };
+    }
+
+    saveLicense(status) {
+        fs.writeFileSync(LICENSE_FILE, JSON.stringify(status));
+    }
+
+    validate() {
+        if (this.status.activated) return { valid: true, type: 'pro' };
+
+        // Trial Check (3 Days = 259200000 ms)
+        const elapsed = Date.now() - this.status.startDate;
+        const remaining = 259200000 - elapsed;
+
+        if (remaining > 0) {
+            return { valid: true, type: 'trial', remainingHours: Math.ceil(remaining / 3600000) };
+        } else {
+            return { valid: false, type: 'expired' };
+        }
+    }
+
+    activate(serial) {
+        const hwid = this.getHardwareId();
+        const expected = this.generateSerial(hwid);
+        if (serial === expected) {
+            this.status.activated = true;
+            this.status.type = 'pro';
+            this.saveLicense(this.status);
+            return true;
+        }
+        return false;
+    }
+}
+
+const licenseMgr = new LicenseManager();
+
+// License IPC
+ipcMain.handle('license-status', () => {
+    const status = licenseMgr.validate();
+    return {
+        ...status,
+        hwid: licenseMgr.getHardwareId()
+    };
+});
+
+ipcMain.handle('license-activate', (event, serial) => {
+    return licenseMgr.activate(serial);
+});
 
 let tray = null;
 let mainWindow = null;
