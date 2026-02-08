@@ -382,6 +382,14 @@ function App() {
     // File Transfer State
     const [transferProgress, setTransferProgress] = useState(null); // { filename, progress: 0-100, type: 'send'|'receive' }
 
+    // Toast Notification State
+    const [toast, setToast] = useState(null); // { message, type: 'success'|'error'|'info' }
+
+    const showToast = (message, type = 'info') => {
+        setToast({ message, type });
+        setTimeout(() => setToast(null), 3000);
+    };
+
     // Verificação Inicial de Função
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
@@ -591,7 +599,10 @@ function App() {
     };
 
     const connectToPartner = () => {
-        if (!targetId) return alert("Digite o ID do Parceiro!");
+        if (!targetId) {
+            showToast("Digite o ID do Parceiro!", 'error');
+            return;
+        }
         const targetClean = targetId.replace(/\s/g, '');
 
         // Add to recent connections
@@ -682,6 +693,7 @@ function App() {
                     if (cmd.type === 'clipboard-set') {
                         console.log('[CLIPBOARD] Writing to host clipboard');
                         window.electronAPI.writeClipboard(cmd.text);
+                        showToast('📋 Clipboard do Host atualizado!', 'success');
                         return;
                     }
 
@@ -722,6 +734,7 @@ function App() {
                             window.currentFileId = null;
                             window.fileTransferMeta = null;
                             setTransferProgress(null);
+                            showToast('Arquivo recebido com sucesso!', 'success');
                         }
                         return;
                     }
@@ -846,7 +859,9 @@ function App() {
                         const data = JSON.parse(msg.data);
                         if (data.type === 'clipboard-update') {
                             console.log('[CLIPBOARD] Received update from host');
-                            navigator.clipboard.writeText(data.text).catch(err => console.error('Clipboard write failed', err));
+                            navigator.clipboard.writeText(data.text)
+                                .then(() => showToast('📋 Copiado do PC!', 'success'))
+                                .catch(err => console.error('Clipboard write failed', err));
                         }
                     } catch (e) { }
                     console.log('[CLIENT] DC Msg:', msg.data);
@@ -940,6 +955,7 @@ function App() {
                                 let offset = 0;
                                 let chunkIndex = 0;
 
+                                // Send Metadata
                                 // 1. Send File Start Metadata
                                 dataChannelRef.current.send(JSON.stringify({
                                     type: 'file-start',
@@ -949,6 +965,7 @@ function App() {
                                 }));
 
                                 setTransferProgress({ filename: file.name, progress: 0, type: 'send' });
+                                showToast(`Enviando ${file.name}...`, 'info');
 
                                 const readNextChunk = () => {
                                     const slice = file.slice(offset, offset + CHUNK_SIZE);
@@ -991,7 +1008,7 @@ function App() {
                                             totalChunks // Verification
                                         }));
                                         setTransferProgress(null);
-                                        // Optional: Toast success
+                                        showToast('Envio concluído!', 'success');
                                     }
                                 };
 
@@ -1031,6 +1048,21 @@ function App() {
                         }} />
                     </div>
                     <p style={{ margin: '10px 0 0 0', fontWeight: 'bold' }}>{transferProgress.progress}%</p>
+                </div>
+            )}
+
+            {/* TOAST NOTIFICATION */}
+            {toast && (
+                <div style={{
+                    position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
+                    background: toast.type === 'error' ? '#f44336' : (toast.type === 'success' ? '#4CAF50' : '#2196F3'),
+                    color: 'white', padding: '12px 24px', borderRadius: '4px',
+                    boxShadow: '0 2px 5px rgba(0,0,0,0.2)', zIndex: 10000,
+                    display: 'flex', alignItems: 'center', gap: '10px',
+                    minWidth: '200px', justifyContent: 'center'
+                }}>
+                    <span style={{ fontSize: '1.2em' }}>{toast.type === 'success' ? '✅' : (toast.type === 'error' ? '❌' : 'ℹ️')}</span>
+                    <span style={{ fontWeight: 500 }}>{toast.message}</span>
                 </div>
             )}
 
