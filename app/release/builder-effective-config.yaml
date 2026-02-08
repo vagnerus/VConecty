@@ -1,0 +1,18 @@
+directories:
+  output: release
+  buildResources: build
+appId: com.vconecty.app
+productName: VConectY Acess
+win:
+  target: nsis
+  icon: resources/icon.ico
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+files:
+  - filter:
+      - dist/**/*
+      - electron/**/*
+      - package.json
+electronVersion: 25.9.8

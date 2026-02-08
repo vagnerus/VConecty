@@ -1,0 +1,65 @@
+{
+    "name": "vconecty-app",
+    "private": true,
+    "version": "0.0.0",
+    "type": "module",
+    "main": "electron/main.cjs",
+    "scripts": {
+        "dev": "vite",
+        "build": "vite build",
+        "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
+        "preview": "vite preview",
+        "electron:dev": "concurrently \"npm run dev\" \"electron .\"",
+        "dist": "electron-builder"
+    },
+    "dependencies": {
+        "@capacitor/android": "^8.0.2",
+        "@capacitor/cli": "^8.0.2",
+        "@capacitor/core": "^8.0.2",
+        "cors": "^2.8.6",
+        "express": "^5.2.1",
+        "nat-upnp": "^1.1.1",
+        "peerjs": "^1.4.7",
+        "public-ip": "^8.0.0",
+        "react": "^18.2.0",
+        "react-dom": "^18.2.0",
+        "socket.io": "^4.8.3",
+        "socket.io-client": "^4.7.2",
+        "sudo-prompt": "^9.2.1"
+    },
+    "devDependencies": {
+        "@types/react": "^18.2.15",
+        "@types/react-dom": "^18.2.7",
+        "@vitejs/plugin-react": "^4.0.3",
+        "concurrently": "^8.2.0",
+        "electron": "^25.3.0",
+        "electron-builder": "^24.4.0",
+        "eslint": "^8.45.0",
+        "eslint-plugin-react": "^7.32.2",
+        "eslint-plugin-react-hooks": "^4.6.0",
+        "eslint-plugin-react-refresh": "^0.4.3",
+        "vite": "^4.4.5",
+        "wait-on": "^7.0.1"
+    },
+    "build": {
+        "appId": "com.vconecty.app",
+        "productName": "VConectY Acess",
+        "win": {
+            "target": "nsis",
+            "icon": "resources/icon.ico"
+        },
+        "nsis": {
+            "oneClick": false,
+            "perMachine": false,
+            "allowToChangeInstallationDirectory": true
+        },
+        "files": [
+            "dist/**/*",
+            "electron/**/*",
+            "package.json"
+        ],
+        "directories": {
+            "output": "release"
+        }
+    }
+}
