@@ -14,7 +14,7 @@ const fs = require('fs');
 console.log('[MAIN] Initialized with robot-control.cjs');
 
 // --- LICENSING SYSTEM ---
-const SECRET_KEY = "VCONECTY_SECRET_MASTER_KEY_2026";
+const _0x9a2b = "VCONECTY_SECRET_MASTER_KEY_2026_SECURE_HASH_V3";
 const LICENSE_FILE = path.join(app.getPath('userData'), 'vconecty.lic');
 
 class LicenseManager {
@@ -29,7 +29,7 @@ class LicenseManager {
 
     generateSerial(hwid) {
         // HMAC-SHA256 signature of HWID using Secret
-        const hmac = crypto.createHmac('sha256', SECRET_KEY);
+        const hmac = crypto.createHmac('sha256', _0x9a2b);
         hmac.update(hwid);
         const signature = hmac.digest('hex').toUpperCase();
         // Format: AAAA-BBBB-CCCC-DDDD

@@ -91,14 +91,14 @@
     </div>
 
     <script>
-        const SECRET_KEY = "VCONECTY_SECRET_MASTER_KEY_2026";
+        const _0x9a2b = "VCONECTY_SECRET_MASTER_KEY_2026_SECURE_HASH_V3";
 
         async function generate() {
             const hwid = document.getElementById('hwid').value.trim().toUpperCase();
             if (!hwid) return alert('Digite o HWID!');
 
             const encoder = new TextEncoder();
-            const keyData = encoder.encode(SECRET_KEY);
+            const keyData = encoder.encode(_0x9a2b);
             const msgData = encoder.encode(hwid);
 
             const key = await crypto.subtle.importKey(
