@@ -21,14 +21,20 @@ io.on('connection', (socket) => {
     // JOIN ROOM (Host registers their ID)
     socket.on('join-host', (roomId) => {
         socket.join(roomId);
+        hosts.set(roomId, socket); // Store the host's socket
         console.log(`Socket ${socket.id} joined room ${roomId}`);
     });
 
     // CLIENT CONNECT (Client signals intent to connect to Host ID)
-    socket.on('client-connect', (data) => {
-        // data: { targetId, from }
-        console.log(`Client ${data.from} connecting to Target ${data.targetId}`);
-        socket.to(data.targetId).emit('incoming-connection', { from: data.from });
+    socket.on('client-connect', ({ targetId, from, password }) => {
+        console.log(`[SERVER] Client ${from} requesting connection to ${targetId} with password:`, password ? 'YES' : 'NO');
+        const targetSocket = hosts.get(targetId);
+        if (targetSocket) {
+            console.log(`[SERVER] Forwarding request to host ${targetId}`);
+            targetSocket.emit('incoming-connection', { from, password });
+        } else {
+            console.log(`[SERVER] Host ${targetId} not found`);
+        }
     });
 
     // WEBRTC SIGNALING (Forwarding based on 'target' ID)

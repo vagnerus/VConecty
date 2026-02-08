@@ -2,17 +2,19 @@ directories:
   output: release
   buildResources: build
 appId: com.vconecty.app
-productName: VConectY Acess
-win:
-  target: nsis
-  icon: resources/icon.ico
-nsis:
-  oneClick: false
-  perMachine: false
-  allowToChangeInstallationDirectory: true
+productName: VConectY
 files:
   - filter:
       - dist/**/*
       - electron/**/*
       - package.json
+win:
+  target:
+    - target: portable
+      arch:
+        - x64
+  icon: icon.ico
+portable:
+  artifactName: VConectY-Portable.exe
+compression: maximum
 electronVersion: 25.9.8

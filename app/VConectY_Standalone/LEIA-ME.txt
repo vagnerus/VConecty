@@ -1,0 +1,31 @@
+# VConectY - Executável Standalone
+
+## 🚀 Como Usar
+
+**Executável:** `VConectY.exe`
+
+Clique duas vezes em `VConectY.exe` para iniciar o aplicativo.
+
+## 📦 Distribuição
+
+Esta pasta **VConectY_Standalone** contém tudo necessário para rodar o app.
+
+**Para distribuir:**
+1. Compacte a pasta inteira em ZIP
+2. Compartilhe com outros usuários
+3. Usuário extrai e executa `VConectY.exe`
+
+## ⚙️ Configuração
+
+**Servidor padrão:** `https://vconecty.onrender.com`
+
+Para mudar:
+- Abra o app → Engrenagem ⚙️ → Cole nova URL
+
+## 📊 Tamanho
+
+Pasta completa: ~150-200MB
+
+---
+**Versão:** 1.0  
+**Data:** 2026-02-08
