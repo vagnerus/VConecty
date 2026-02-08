@@ -162,6 +162,39 @@ ipcMain.handle('write-clipboard', (event, text) => {
     return true;
 });
 
+// ========== FILE TRANSFER HANDLERS ==========
+
+ipcMain.handle('save-file', async (event, { filename, dataBase64 }) => {
+    try {
+        const downloadPath = app.getPath('downloads');
+        const filePath = path.join(downloadPath, filename);
+
+        // Ensure unique filename
+        // Simple logic: if exists, prepend timestamp
+        let finalPath = filePath;
+        const fs = require('fs');
+        if (fs.existsSync(filePath)) {
+            finalPath = path.join(downloadPath, `${Date.now()}_${filename}`);
+        }
+
+        const buffer = Buffer.from(dataBase64, 'base64');
+        await require('fs').promises.writeFile(finalPath, buffer);
+        console.log('[FILE] Saved to:', finalPath);
+
+        // Notify user via tray or notification?
+        if (tray) {
+            tray.displayBalloon({
+                title: 'Arquivo Recebido',
+                content: `Salvo em Downloads: ${path.basename(finalPath)}`
+            });
+        }
+        return { success: true, path: finalPath };
+    } catch (e) {
+        console.error('[FILE] Save error:', e);
+        return { success: false, error: e.message };
+    }
+});
+
 // ========== WINDOW MANAGEMENT ==========
 
 ipcMain.on('window-minimize', (event) => {

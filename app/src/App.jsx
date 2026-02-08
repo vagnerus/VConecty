@@ -682,6 +682,25 @@ function App() {
                         return;
                     }
 
+                    // File Transfer (Client -> Host)
+                    if (cmd.type === 'file-transfer') {
+                        console.log(`[FILE] Receiving ${cmd.filename}...`);
+                        if (window.electronAPI?.saveFile) {
+                            window.electronAPI.saveFile(cmd.filename, cmd.dataBase64)
+                                .then(res => {
+                                    if (res.success) {
+                                        console.log('[FILE] Saved to:', res.path);
+                                        // Optional: Send confirmation back
+                                    } else {
+                                        console.error('[FILE] Save failed:', res.error);
+                                    }
+                                });
+                        } else {
+                            console.warn('[FILE] Host cannot save files (no electronAPI)');
+                        }
+                        return;
+                    }
+
                     console.log('[HOST] ✅ DataChannel CMD:', cmd.type, cmd);
                     window.electronAPI.robotControl(cmd);
                 } catch (err) {
@@ -871,6 +890,53 @@ function App() {
                         }
                     }}
                 />
+            )}
+
+            {/* File Transfer Controls (Client Only) */}
+            {role === 'client' && debugInfo.dcStatus === 'open' && (
+                <div style={{
+                    position: 'fixed', bottom: 10, left: 10, zIndex: 6000,
+                    display: 'flex', gap: '10px'
+                }}>
+                    <input
+                        type="file"
+                        id="file-upload"
+                        style={{ display: 'none' }}
+                        onChange={(e) => {
+                            const file = e.target.files[0];
+                            if (file && dataChannelRef.current) {
+                                const reader = new FileReader();
+                                reader.onload = (evt) => {
+                                    const arrayBuffer = evt.target.result;
+                                    const base64 = btoa(
+                                        new Uint8Array(arrayBuffer)
+                                            .reduce((data, byte) => data + String.fromCharCode(byte), '')
+                                    );
+
+                                    // Send Metadata
+                                    dataChannelRef.current.send(JSON.stringify({
+                                        type: 'file-transfer',
+                                        filename: file.name,
+                                        dataBase64: base64 // Sending whole file for simplicity in v1. 
+                                        // TODO: Chunking for large files > 1MB
+                                    }));
+                                    alert(`Enviando ${file.name}...`);
+                                };
+                                reader.readAsArrayBuffer(file);
+                            }
+                        }}
+                    />
+                    <button
+                        onClick={() => document.getElementById('file-upload').click()}
+                        style={{
+                            background: '#2196F3', color: 'white', border: 'none',
+                            padding: '8px 16px', borderRadius: '4px', cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', gap: '5px'
+                        }}
+                    >
+                        📂 Enviar Arquivo
+                    </button>
+                </div>
             )}
 
 
