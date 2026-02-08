@@ -11,5 +11,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
     on: (channel, callback) => ipcRenderer.on(channel, (event, ...args) => callback(...args)),
     send: (channel, data) => ipcRenderer.send(channel, data),
     createSessionWindow: (targetId, password) => ipcRenderer.invoke('create-session-window', targetId, password),
-    robotControl: (data) => ipcRenderer.invoke('robot-control', data)
+    robotControl: (data) => ipcRenderer.send('robot-control', data)
 });

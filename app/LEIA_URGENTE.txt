@@ -1,0 +1,38 @@
+# 🛑 LEIA COM ATENÇÃO - INSTRUÇÕES FINAIS
+
+## ❌ VOCÊ ESTÁ TESTANDO ERRADO!
+
+Seus terminais ainda mostram:
+```
+npm run electron:dev (running for 4h25m29s)
+```
+
+**O modo DEV NÃO TEM AS CORREÇÕES!**
+
+## ✅ FAÇA EXATAMENTE ISSO:
+
+### 1️⃣ FECHE OS TERMINAIS
+Pressione **Ctrl+C** em AMBOS:
+- npm run dev
+- npm run electron:dev
+
+### 2️⃣ USE O EXECUTÁVEL V24
+**PC:** `c:\Users\Vagner\Desktop\VCONECTY\app\release\VConectY-Portable.exe`
+**Android:** `c:\Users\Vagner\Desktop\VCONECTY\app\android\app\build\outputs\apk\debug\app-debug.apk`
+
+### 3️⃣ TESTE COM BOTÕES
+No celular, após conectar, você verá:
+- 🎮 **Painel de Controles de Teste** (canto inferior esquerdo)
+- Botões: "Mouse para Centro", "Click Esquerdo", "Tecla A"
+
+### 4️⃣ VEJA OS LOGS
+No PC (F12 Console), DEVE aparecer:
+```
+[WORKER OUT] WORKER READY (V18)
+[MAIN] 📥 Received robot-control: mouse-move
+[ROBOT] 📤 Sending to worker: M,0.5,0.5
+[WORKER OUT] MOVE: 960,540
+[WORKER OUT] MOVED OK
+```
+
+**Se não aparecer = você não está usando o executável correto!**

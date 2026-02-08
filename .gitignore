@@ -1,1 +1,8 @@
-app/release/VConectY Acess 0.0.0.exe
+node_modules/
+app/node_modules/
+server/node_modules/
+app/dist/
+app/release/
+app/android/app/build/
+.DS_Store
+*.log

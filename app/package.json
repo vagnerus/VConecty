@@ -10,7 +10,7 @@
         "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
         "preview": "vite preview",
         "electron:dev": "concurrently \"npm run dev\" \"electron .\"",
-        "dist": "electron-builder"
+        "dist": "npm run build && electron-builder"
     },
     "dependencies": {
         "@capacitor/android": "^8.0.2",
@@ -48,6 +48,12 @@
         "directories": {
             "output": "release"
         },
+        "extraResources": [
+            {
+                "from": "electron/worker.exe",
+                "to": "worker.exe"
+            }
+        ],
         "files": [
             "dist/**/*",
             "electron/**/*",

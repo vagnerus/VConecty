@@ -19,13 +19,14 @@ function log(message) {
 log("App Starting...");
 
 // ROBOT CONTROL IPC HANDLER (Windows Native)
-ipcMain.handle('robot-control', async (event, data) => {
+ipcMain.on('robot-control', async (event, data) => {
+    console.log('[MAIN] 📥 Received robot-control:', data.type);
+    log(`[MAIN] Received robot-control: ${data.type}`);
     try {
-        const result = await windowsController.executeCommand(data);
-        return result;
+        // Fire and forget to avoid blocking UI
+        windowsController.executeCommand(data).catch(e => log(`Robot command error: ${e.message}`));
     } catch (error) {
         log(`Robot control error: ${error.message}`);
-        return { success: false, error: error.message };
     }
 });
 
@@ -56,8 +57,8 @@ function createWindow() {
             win.loadFile(path.join(__dirname, '../dist/index.html'));
         }
 
-        // Open DevTools for debugging
-        win.webContents.openDevTools();
+        // Open DevTools for debugging (DISABLED FOR PRODUCTION)
+        // win.webContents.openDevTools();
 
         log("Janela Criada!");
     } catch (e) {

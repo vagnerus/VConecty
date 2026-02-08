@@ -3,6 +3,9 @@ directories:
   buildResources: build
 appId: com.vconecty.app
 productName: VConectY
+extraResources:
+  - from: electron/worker.exe
+    to: worker.exe
 files:
   - filter:
       - dist/**/*

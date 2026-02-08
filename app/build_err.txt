@@ -1,0 +1,26 @@
+[31m[vite:esbuild] Transform failed with 1 error:
+C:/Users/Vagner/Desktop/VCONECTY/app/src/App.jsx:768:0: ERROR: Expected ")" but found "export"[39m
+file: [36mC:/Users/Vagner/Desktop/VCONECTY/app/src/App.jsx:768:0[39m
+[33m
+[33mExpected ")" but found "export"[33m
+765|          );
+766|      }
+767|  
+   |   ^
+768|  export default App;
+   |  ^
+769|  
+[39m
+[31merror during build:
+Error: Transform failed with 1 error:
+C:/Users/Vagner/Desktop/VCONECTY/app/src/App.jsx:768:0: ERROR: Expected ")" but found "export"
+    at failureErrorWithLog (C:\Users\Vagner\Desktop\VCONECTY\app\node_modules\esbuild\lib\main.js:1649:15)
+    at C:\Users\Vagner\Desktop\VCONECTY\app\node_modules\esbuild\lib\main.js:847:29
+    at responseCallbacks.<computed> (C:\Users\Vagner\Desktop\VCONECTY\app\node_modules\esbuild\lib\main.js:703:9)
+    at handleIncomingPacket (C:\Users\Vagner\Desktop\VCONECTY\app\node_modules\esbuild\lib\main.js:762:9)
+    at Socket.readFromStdout (C:\Users\Vagner\Desktop\VCONECTY\app\node_modules\esbuild\lib\main.js:679:7)
+    at Socket.emit (node:events:508:28)
+    at addChunk (node:internal/streams/readable:559:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:510:3)
+    at Readable.push (node:internal/streams/readable:390:5)
+    at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)[39m

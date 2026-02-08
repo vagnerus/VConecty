@@ -1,74 +1,82 @@
-// robot-control.js - Windows native control without robotjs
-const { exec } = require('child_process');
-const { screen } = require('electron');
+// robot-control.js - Controlador Windows de Alta Performance via Worker C#
+const { spawn } = require('child_process');
+const path = require('path');
+const { app } = require('electron');
 
 class WindowsController {
-    async executeCommand(data) {
-        const display = screen.getPrimaryDisplay();
-        const { width: screenWidth, height: screenHeight } = display.bounds;
-
-        switch (data.type) {
-            case 'mouse-move':
-                return this.moveMouse(data.x * screenWidth, data.y * screenHeight);
-            case 'mouse-click':
-                return this.mouseClick(data.button || 'left');
-            case 'key-press':
-                return this.keyPress(data.key, data.modifiers);
-        }
+    constructor() {
+        this.worker = null;
+        this.ensureWorker();
     }
 
-    async moveMouse(x, y) {
-        const script = `
-            Add-Type -AssemblyName System.Windows.Forms;
-            [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${Math.floor(x)}, ${Math.floor(y)})
-        `.replace(/\s+/g, ' ');
+    ensureWorker() {
+        if (this.worker && !this.worker.killed) return;
 
-        return this.runPowerShell(script);
-    }
+        try {
+            const workerPath = app.isPackaged
+                ? path.join(process.resourcesPath, 'worker.exe')
+                : path.join(__dirname, 'worker.exe');
 
-    async mouseClick(button) {
-        const eventFlag = button === 'left' ? 0x06 : 0x18; // LEFTDOWN | LEFTUP or RIGHTDOWN | RIGHTUP
-        const script = `
-            Add-Type @"
-using System;
-using System.Runtime.InteropServices;
-public class WinAPI {
-    [DllImport("user32.dll")]
-    public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, int dwExtraInfo);
-}
-"@;
-            [WinAPI]::mouse_event(${eventFlag}, 0, 0, 0, 0)
-        `.replace(/\s+/g, ' ');
+            console.log('[ROBOT] Iniciando worker:', workerPath);
 
-        return this.runPowerShell(script);
-    }
-
-    async keyPress(key, modifiers = []) {
-        let keyStr = key;
-        if (modifiers.length > 0) {
-            const mods = modifiers.map(m => {
-                if (m === 'control') return '^';
-                if (m === 'shift') return '+';
-                if (m === 'alt') return '%';
-                return '';
-            }).join('');
-            keyStr = mods + key;
-        }
-
-        const script = `
-            Add-Type -AssemblyName System.Windows.Forms;
-            [System.Windows.Forms.SendKeys]::SendWait('${keyStr}')
-        `.replace(/\s+/g, ' ');
-
-        return this.runPowerShell(script);
-    }
-
-    runPowerShell(script) {
-        return new Promise((resolve) => {
-            exec(`powershell -Command "${script}"`, (error) => {
-                resolve({ success: !error, error: error?.message });
+            this.worker = spawn(workerPath, [], {
+                stdio: ['pipe', 'pipe', 'pipe'],
+                windowsHide: true
             });
-        });
+
+            this.worker.stdout.on('data', (data) => console.log(`[WORKER OUT] ${data}`));
+            this.worker.stderr.on('data', (data) => console.error(`[WORKER ERR] ${data}`));
+
+            this.worker.on('error', (err) => console.error('[ROBOT] Erro no Worker:', err));
+            this.worker.on('exit', (code) => {
+                console.log('[ROBOT] Worker encerrou:', code);
+                this.worker = null;
+            });
+
+            // Mecanismo de manter ativo? Apenas reinicia no próximo comando
+        } catch (e) {
+            console.error('[ROBOT] Falha ao iniciar worker:', e);
+        }
+    }
+
+    async executeCommand(data) {
+        this.ensureWorker();
+        if (!this.worker) return { success: false, error: "Nenhum worker ativo" };
+
+        try {
+            let cmdStr = "";
+            switch (data.type) {
+                case 'mouse-move':
+                    // M,x,y (Cliente envia normalizado 0-1)
+                    // Worker espera 0-1 float para multiplicar pelo tamanho da tela
+                    cmdStr = `M,${data.x},${data.y}\n`;
+                    break;
+                case 'mouse-down':
+                    cmdStr = `D,${data.button || 'left'}\n`;
+                    break;
+                case 'mouse-up':
+                    cmdStr = `U,${data.button || 'left'}\n`;
+                    break;
+                case 'mouse-relative':
+                    // R,dx,dy
+                    cmdStr = `R,${data.dx || 0},${data.dy || 0}\n`;
+                    break;
+                case 'key-down':
+                case 'key-press':
+                    // Mapeia key-down para envio direto
+                    cmdStr = `K,${data.key}\n`;
+                    break;
+            }
+
+            if (cmdStr) {
+                console.log('[ROBOT] 📤 Enviando para worker:', cmdStr.trim());
+                this.worker.stdin.write(cmdStr);
+            }
+            return { success: true };
+        } catch (e) {
+            console.error('[ROBOT] Erro ao validar comando:', e);
+            return { success: false, error: e.message };
+        }
     }
 }
 

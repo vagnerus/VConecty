@@ -1,0 +1,23 @@
+# COMO TESTAR O V22 CORRETAMENTE
+
+## ❌ NÃO USE:
+- `npm run electron:dev` (modo desenvolvimento)
+- Pasta `app` diretamente
+
+## ✅ USE APENAS:
+O executável compilado: `release/VConectY-Portable.exe`
+
+## Passos:
+1. **Feche todos os terminais** (Ctrl+C em ambos npm run dev e electron:dev)
+2. Vá para: `c:\Users\Vagner\Desktop\VCONECTY\app\release\`
+3. Execute DIRETO: `VConectY-Portable.exe`
+4. Pressione F12 para abrir DevTools
+5. Conecte do celular (APK v20)
+6. Toque na tela
+
+Agora SIM você deve ver:
+```
+[MAIN] 📥 Received robot-control: mouse-move
+[ROBOT] 📤 Sending to worker: M,0.5,0.5
+[WORKER OUT] WORKER READY (V18)
+```
