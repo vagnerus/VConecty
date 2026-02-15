@@ -228,7 +228,19 @@ io.on('connection', (socket) => {
     });
 });
 
+// ... (previous code)
+
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`VConectY Server running on port ${PORT}`);
-});
+
+// Apenas iniciar o servidor se for executado diretamente (não na Vercel)
+if (require.main === module) {
+    server.listen(PORT, () => {
+        console.log(`VConectY Server running on port ${PORT}`);
+    });
+}
+
+// Exportar para Vercel (Serverless Function)
+module.exports = (req, res) => {
+    // Permitir que o servidor HTTP (com Socket.IO + Express) manipule a requisição
+    server.emit('request', req, res);
+};
