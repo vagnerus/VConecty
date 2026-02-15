@@ -6,11 +6,25 @@
 import React, { useEffect, useRef, useState } from 'react';
 import io from 'socket.io-client'
 import { generateKeyPair, exportPublicKey, sha256 } from './security'
+import UpdateNotification from './components/UpdateNotification'
+import UpdateSettings from './components/UpdateSettings'
+import DiagnosticsPanel from './components/DiagnosticsPanel'
+import UpdateScheduler from './components/UpdateScheduler'
+import BetaOptIn from './components/BetaOptIn'
+import OfflineUpdateInstaller from './components/OfflineUpdateInstaller'
+import Dashboard from './components/Dashboard'
+import FileTransfer from './components/FileTransfer'
+import Chat from './components/Chat'
+import { Capacitor } from '@capacitor/core'
+import UpdatePlugin from './plugins/UpdatePlugin'
 
 // COMPONENTES DE UI
 const TitleBar = ({ minimize, close }) => (
     <div className="title-bar">
-        <div className="title-bar-title">VConectY Direct</div>
+        <div className="title-bar-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ filter: 'drop-shadow(0 0 5px #4CAF50)' }}>💎</span>
+            <span style={{ fontWeight: 'bold' }}>VConectY Direct</span>
+        </div>
         <div className="title-bar-controls">
             <div className="control-btn" onClick={minimize}>_</div>
             <div className="control-btn close" onClick={close}>✕</div>
@@ -140,10 +154,12 @@ const FullScreenSession = ({ videoRef, dataChannelRef, setDebugInfo, onDisconnec
             <div style={{
                 padding: '10px', background: 'rgba(0,0,0,0.8)', color: 'white',
                 display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                borderBottom: '1px solid #333'
+                borderBottom: '1px solid #333',
+                WebkitAppRegion: 'drag' // MAKE DRAGGABLE
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span>💻 Acesso Remoto</span>
+                    <span style={{ fontSize: '1.2em' }}>💎</span>
+                    <span>Acesso Remoto</span>
                     <span style={{
                         padding: '2px 8px', borderRadius: '4px', fontSize: '12px',
                         background: status.includes('Conectado') ? 'green' : status.includes('instável') ? 'orange' : '#333'
@@ -348,9 +364,20 @@ function App() {
     const [myPassword, setMyPassword] = useState(localStorage.getItem('vconecty_pwd') || Math.random().toString(36).slice(-4));
 
     // Server
-    const [serverUrl, setServerUrl] = useState(
-        localStorage.getItem('vconecty_server') || 'https://vconecty.onrender.com'
-    );
+    const [serverUrl, setServerUrl] = useState(() => {
+        const saved = localStorage.getItem('vconecty_server');
+        if (saved) return saved;
+
+        // Se estiver rodando no navegador (Vercel/Web) e não for lhost
+        const isWeb = window.location.protocol.startsWith('http');
+        const isLocal = window.location.hostname.includes('localhost') || window.location.hostname.includes('127.0.0.1');
+
+        if (isWeb && !isLocal) {
+            return window.location.origin; // Usar a própria URL (Vercel)
+        }
+
+        return 'https://vconecty.onrender.com'; // Fallback original
+    });
 
     // Connection State
     const [targetId, setTargetId] = useState('');
@@ -360,6 +387,8 @@ function App() {
     ); // My password for incoming connections
     const [socket, setSocket] = useState(null);
     const [status, setStatus] = useState('Desconectado');
+    const [connected, setConnected] = useState(false); // ADICIONADO: Estado de conexão
+
 
     // Determinar função inicial pela URL
     const params = new URLSearchParams(window.location.search);
@@ -395,20 +424,130 @@ function App() {
         setTimeout(() => setToast(null), 3000);
     };
 
+    // Auto-Update State
+    const [updateInfo, setUpdateInfo] = useState(null);
+    const [updateDownloadProgress, setUpdateDownloadProgress] = useState(null);
+    const [updateStatus, setUpdateStatus] = useState(null); // 'available' | 'downloading' | 'ready'
+    const [showUpdateSettings, setShowUpdateSettings] = useState(false); // Modal de configurações
+
+    // Dashboard State
+    const [showDashboard, setShowDashboard] = useState(false);
+
+    // File Transfer State
+    const [showFileTransfer, setShowFileTransfer] = useState(false);
+
+    // Chat State
+    const [showChat, setShowChat] = useState(false);
+
     // License State
-    const [license, setLicense] = useState(null); // { valid: true, type: 'trial|pro', remainingHours, hwid }
+    const [license, setLicense] = useState({ valid: true, type: 'trial', remainingHours: 72, hwid: '' });
     const [activationKey, setActivationKey] = useState('');
     const [showActivationModal, setShowActivationModal] = useState(false);
     const [trialTimer, setTrialTimer] = useState('Calculando...');
 
+    const fetchLicense = async (retries = 3) => {
+        try {
+            if (window.electronAPI?.checkLicense) {
+                const status = await window.electronAPI.checkLicense();
+                console.log('[LICENSE] Result:', status);
+                if (status && status.hwid) {
+                    setLicense(status);
+                    return true;
+                }
+            } else {
+                console.warn('[LICENSE] API not ready, retry left:', retries);
+            }
+        } catch (err) {
+            console.error('[LICENSE] Error:', err);
+        }
+
+        if (retries > 0) {
+            setTimeout(() => fetchLicense(retries - 1), 1000);
+        } else if (!license.hwid) {
+            // Ultimate Fallback: Generate a "Client-Side" ID if bridge fails
+            const fallbackId = 'PORTABLE-' + Math.random().toString(36).substring(2, 10).toUpperCase();
+            setLicense(prev => ({ ...prev, hwid: fallbackId }));
+        }
+        return false;
+    };
+
     useEffect(() => {
-        if (window.electronAPI?.checkLicense) {
-            window.electronAPI.checkLicense().then(status => {
-                console.log('[LICENSE] Status:', status);
-                setLicense(status);
+        fetchLicense();
+
+        // Setup Auto-Update Listeners (Desktop Only)
+        if (window.electronAPI?.onUpdateAvailable) {
+            window.electronAPI.onUpdateAvailable((info) => {
+                console.log('[UPDATE] Nova versão disponível:', info.version);
+                setUpdateInfo(info);
+                setUpdateStatus('available');
+                showToast(`Nova versão ${info.version} disponível!`, 'info');
+            });
+
+            window.electronAPI.onUpdateDownloadProgress((progress) => {
+                console.log('[UPDATE] Progresso:', progress.percent + '%');
+                setUpdateDownloadProgress(progress);
+            });
+
+            window.electronAPI.onUpdateDownloaded((info) => {
+                console.log('[UPDATE] Download concluído!');
+                setUpdateStatus('ready');
+                setUpdateDownloadProgress(null);
+                showToast('Atualização baixada! Clique para instalar.', 'success');
+            });
+
+            window.electronAPI.onUpdateError((error) => {
+                console.error('[UPDATE] Erro:', error.message);
+                showToast('Erro ao verificar atualizações', 'error');
+                setUpdateStatus(null);
+                setUpdateInfo(null);
             });
         }
+
+        // Setup Auto-Update Listeners (Android Only) - COMENTADO PARA ELECTRON
+        // TODO: Detectar plataforma corretamente antes de usar Capacitor
+        /*
+        if (Capacitor.getPlatform() === 'android') {
+            console.log('[UPDATE] Configurando listeners Android');
+
+            UpdatePlugin.addListener('updateAvailable', (info) => {
+                console.log('[UPDATE] Nova versão Android disponível:', info.version);
+                setUpdateInfo({
+                    version: info.version,
+                    releaseNotes: info.changelog,
+                    downloadUrl: info.downloadUrl
+                });
+                setUpdateStatus('available');
+                showToast(`Nova versão ${info.version} disponível!`, 'info');
+            });
+
+            UpdatePlugin.addListener('downloadProgress', (progress) => {
+                console.log('[UPDATE] Progresso Android:', progress.percent + '%');
+                setUpdateDownloadProgress({ percent: progress.percent });
+            });
+
+            UpdatePlugin.addListener('downloadComplete', () => {
+                console.log('[UPDATE] Download Android concluído!');
+                setUpdateStatus('ready');
+                setUpdateDownloadProgress(null);
+                showToast('APK baixado! Toque para instalar.', 'success');
+            });
+
+            UpdatePlugin.addListener('updateError', (error) => {
+                console.error('[UPDATE] Erro Android:', error.error);
+                showToast('Erro ao verificar atualizações', 'error');
+                setUpdateStatus(null);
+                setUpdateInfo(null);
+            });
+
+            // Verificar atualizações ao abrir o app (após 5 segundos)
+            setTimeout(() => {
+                console.log('[UPDATE] Verificando atualizações Android...');
+                UpdatePlugin.checkForUpdates();
+            }, 5000);
+        }
+        */
     }, []);
+
 
     // Timer Countdown
     useEffect(() => {
@@ -634,7 +773,12 @@ function App() {
         const s = io(cleanUrl, {
             reconnectionAttempts: 20,
             autoConnect: true,
-            transports: ['websocket', 'polling']
+            transports: ['polling', 'websocket'], // Vercel precisa de polling primeiro p/ garantir
+            withCredentials: true,
+            path: '/socket.io/',
+            // Tentar contornar problemas de conexão
+            forceNew: true,
+            timeout: 10000
         });
 
         s.on('connect', async () => {
@@ -948,11 +1092,13 @@ function App() {
             newPc.onconnectionstatechange = () => {
                 console.log('[WEBRTC] Connection State:', newPc.connectionState);
                 if (newPc.connectionState === 'connected') {
+                    setConnected(true);
                     setStatus('Conectado! 🚀');
                     // Connection successful, stop watchdog
                     if (connectionTimeoutRef.current) clearTimeout(connectionTimeoutRef.current);
                     setRetryCount(0);
                 } else if (newPc.connectionState === 'failed' || newPc.connectionState === 'disconnected') {
+                    setConnected(false);
                     setStatus('Conexão instável ou perdida...');
                 }
             };
@@ -1041,8 +1187,13 @@ function App() {
                     }}
                     onDisconnect={() => {
                         // Se estiver no Electron, fecha a janela
-                        if (window.location.search.includes('mode=session') && window.electronAPI) {
-                            window.electronAPI.close();
+                        if (window.electronAPI) {
+                            if (window.location.search.includes('mode=session')) {
+                                window.electronAPI.close();
+                            } else {
+                                // Se for a janela principal, apenas recarrega para limpar estado
+                                window.location.reload();
+                            }
                         } else {
                             // Se estiver no browser, volta para a home limpando os parametros
                             window.location.href = '/';
@@ -1052,330 +1203,422 @@ function App() {
             )}
 
             {/* File Transfer Controls (Client Only) */}
-            {role === 'client' && debugInfo.dcStatus === 'open' && (
-                <div style={{
-                    position: 'fixed', bottom: 10, left: 10, zIndex: 6000,
-                    display: 'flex', gap: '10px'
-                }}>
-                    <input
-                        type="file"
-                        id="file-upload"
-                        style={{ display: 'none' }}
-                        onChange={(e) => {
-                            const file = e.target.files[0];
-                            if (file && dataChannelRef.current) {
-                                const CHUNK_SIZE = 16 * 1024; // 16KB chunks
-                                const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+            {
+                role === 'client' && debugInfo.dcStatus === 'open' && (
+                    <div style={{
+                        position: 'fixed', bottom: 10, left: 10, zIndex: 6000,
+                        display: 'flex', gap: '10px'
+                    }}>
+                        <input
+                            type="file"
+                            id="file-upload"
+                            style={{ display: 'none' }}
+                            onChange={(e) => {
+                                const file = e.target.files[0];
+                                if (file && dataChannelRef.current) {
+                                    const CHUNK_SIZE = 16 * 1024; // 16KB chunks
+                                    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
 
-                                const reader = new FileReader();
-                                let offset = 0;
-                                let chunkIndex = 0;
+                                    const reader = new FileReader();
+                                    let offset = 0;
+                                    let chunkIndex = 0;
 
-                                // Send Metadata
-                                // 1. Send File Start Metadata
-                                dataChannelRef.current.send(JSON.stringify({
-                                    type: 'file-start',
-                                    filename: file.name,
-                                    size: file.size,
-                                    totalChunks
-                                }));
-
-                                setTransferProgress({ filename: file.name, progress: 0, type: 'send' });
-                                showToast(`Enviando ${file.name}...`, 'info');
-
-                                const readNextChunk = () => {
-                                    const slice = file.slice(offset, offset + CHUNK_SIZE);
-                                    reader.readAsArrayBuffer(slice);
-                                };
-
-                                reader.onload = (evt) => {
-                                    if (dataChannelRef.current?.readyState !== 'open') {
-                                        setTransferProgress(null);
-                                        return;
-                                    }
-
-                                    const arrayBuffer = evt.target.result;
-                                    const base64 = btoa(
-                                        new Uint8Array(arrayBuffer)
-                                            .reduce((data, byte) => data + String.fromCharCode(byte), '')
-                                    );
-
-                                    // 2. Send Chunk
+                                    // Send Metadata
+                                    // 1. Send File Start Metadata
                                     dataChannelRef.current.send(JSON.stringify({
-                                        type: 'file-chunk',
-                                        chunkBase64: base64,
-                                        chunkIndex
+                                        type: 'file-start',
+                                        filename: file.name,
+                                        size: file.size,
+                                        totalChunks
                                     }));
 
-                                    offset += CHUNK_SIZE;
-                                    chunkIndex++;
+                                    setTransferProgress({ filename: file.name, progress: 0, type: 'send' });
+                                    showToast(`Enviando ${file.name}...`, 'info');
 
-                                    // Update Progress
-                                    const percent = Math.min(100, Math.round((offset / file.size) * 100));
-                                    setTransferProgress(prev => prev ? ({ ...prev, progress: percent }) : null);
+                                    const readNextChunk = () => {
+                                        const slice = file.slice(offset, offset + CHUNK_SIZE);
+                                        reader.readAsArrayBuffer(slice);
+                                    };
 
-                                    if (offset < file.size) {
-                                        // Send next chunk immediately (or use setTimeout(0) to yield)
-                                        setTimeout(readNextChunk, 2);
-                                    } else {
-                                        // 3. Send File End
+                                    reader.onload = (evt) => {
+                                        if (dataChannelRef.current?.readyState !== 'open') {
+                                            setTransferProgress(null);
+                                            return;
+                                        }
+
+                                        const arrayBuffer = evt.target.result;
+                                        const base64 = btoa(
+                                            new Uint8Array(arrayBuffer)
+                                                .reduce((data, byte) => data + String.fromCharCode(byte), '')
+                                        );
+
+                                        // 2. Send Chunk
                                         dataChannelRef.current.send(JSON.stringify({
-                                            type: 'file-end',
-                                            totalChunks // Verification
+                                            type: 'file-chunk',
+                                            chunkBase64: base64,
+                                            chunkIndex
                                         }));
-                                        setTransferProgress(null);
-                                        showToast('Envio concluído!', 'success');
-                                    }
-                                };
 
-                                readNextChunk();
-                            }
-                        }}
-                    />
-                    <button
-                        onClick={() => document.getElementById('file-upload').click()}
-                        style={{
-                            background: '#2196F3', color: 'white', border: 'none',
-                            padding: '8px 16px', borderRadius: '4px', cursor: 'pointer',
-                            display: 'flex', alignItems: 'center', gap: '5px'
-                        }}
-                    >
-                        📂 Enviar Arquivo
-                    </button>
-                </div>
-            )}
+                                        offset += CHUNK_SIZE;
+                                        chunkIndex++;
+
+                                        // Update Progress
+                                        const percent = Math.min(100, Math.round((offset / file.size) * 100));
+                                        setTransferProgress(prev => prev ? ({ ...prev, progress: percent }) : null);
+
+                                        if (offset < file.size) {
+                                            // Send next chunk immediately (or use setTimeout(0) to yield)
+                                            setTimeout(readNextChunk, 2);
+                                        } else {
+                                            // 3. Send File End
+                                            dataChannelRef.current.send(JSON.stringify({
+                                                type: 'file-end',
+                                                totalChunks // Verification
+                                            }));
+                                            setTransferProgress(null);
+                                            showToast('Envio concluído!', 'success');
+                                        }
+                                    };
+
+                                    readNextChunk();
+                                }
+                            }}
+                        />
+                        <button
+                            onClick={() => document.getElementById('file-upload').click()}
+                            style={{
+                                background: '#2196F3', color: 'white', border: 'none',
+                                padding: '8px 16px', borderRadius: '4px', cursor: 'pointer',
+                                display: 'flex', alignItems: 'center', gap: '5px'
+                            }}
+                        >
+                            📂 Enviar Arquivo
+                        </button>
+                    </div>
+                )
+            }
 
             {/* PROGRESS BAR OVERLAY */}
-            {transferProgress && (
-                <div style={{
-                    position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-                    background: 'rgba(0,0,0,0.9)', padding: '20px', borderRadius: '8px',
-                    color: 'white', zIndex: 9000, textAlign: 'center', minWidth: '300px',
-                    boxShadow: '0 0 20px rgba(0,0,0,0.5)', border: '1px solid #333'
-                }}>
-                    <h3 style={{ margin: '0 0 10px 0', fontSize: '18px' }}>
-                        {transferProgress.type === 'send' ? '📤 Enviando' : '📥 Recebendo'} Arquivo...
-                    </h3>
-                    <p style={{ margin: '0 0 15px 0', fontSize: '14px', opacity: 0.8 }}>{transferProgress.filename}</p>
-                    <div style={{ width: '100%', height: '10px', background: '#333', borderRadius: '5px', overflow: 'hidden' }}>
-                        <div style={{
-                            width: `${transferProgress.progress}%`, height: '100%',
-                            background: '#4CAF50', transition: 'width 0.2s ease-in-out'
-                        }} />
+            {
+                transferProgress && (
+                    <div style={{
+                        position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+                        background: 'rgba(0,0,0,0.9)', padding: '20px', borderRadius: '8px',
+                        color: 'white', zIndex: 9000, textAlign: 'center', minWidth: '300px',
+                        boxShadow: '0 0 20px rgba(0,0,0,0.5)', border: '1px solid #333'
+                    }}>
+                        <h3 style={{ margin: '0 0 10px 0', fontSize: '18px' }}>
+                            {transferProgress.type === 'send' ? '📤 Enviando' : '📥 Recebendo'} Arquivo...
+                        </h3>
+                        <p style={{ margin: '0 0 15px 0', fontSize: '14px', opacity: 0.8 }}>{transferProgress.filename}</p>
+                        <div style={{ width: '100%', height: '10px', background: '#333', borderRadius: '5px', overflow: 'hidden' }}>
+                            <div style={{
+                                width: `${transferProgress.progress}%`, height: '100%',
+                                background: '#4CAF50', transition: 'width 0.2s ease-in-out'
+                            }} />
+                        </div>
+                        <p style={{ margin: '10px 0 0 0', fontWeight: 'bold' }}>{transferProgress.progress}%</p>
                     </div>
-                    <p style={{ margin: '10px 0 0 0', fontWeight: 'bold' }}>{transferProgress.progress}%</p>
-                </div>
-            )}
+                )
+            }
 
             {/* TOAST NOTIFICATION */}
-            {toast && (
-                <div style={{
-                    position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
-                    background: toast.type === 'error' ? '#f44336' : (toast.type === 'success' ? '#4CAF50' : '#2196F3'),
-                    color: 'white', padding: '12px 24px', borderRadius: '4px',
-                    boxShadow: '0 2px 5px rgba(0,0,0,0.2)', zIndex: 10000,
-                    display: 'flex', alignItems: 'center', gap: '10px',
-                    minWidth: '200px', justifyContent: 'center'
-                }}>
-                    <span style={{ fontSize: '1.2em' }}>{toast.type === 'success' ? '✅' : (toast.type === 'error' ? '❌' : 'ℹ️')}</span>
-                    <span style={{ fontWeight: 500 }}>{toast.message}</span>
-                </div>
-            )}
+            {
+                toast && (
+                    <div style={{
+                        position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
+                        background: toast.type === 'error' ? '#f44336' : (toast.type === 'success' ? '#4CAF50' : '#2196F3'),
+                        color: 'white', padding: '12px 24px', borderRadius: '4px',
+                        boxShadow: '0 2px 5px rgba(0,0,0,0.2)', zIndex: 10000,
+                        display: 'flex', alignItems: 'center', gap: '10px',
+                        minWidth: '200px', justifyContent: 'center'
+                    }}>
+                        <span style={{ fontSize: '1.2em' }}>{toast.type === 'success' ? '✅' : (toast.type === 'error' ? '❌' : 'ℹ️')}</span>
+                        <span style={{ fontWeight: 500 }}>{toast.message}</span>
+                    </div>
+                )
+            }
 
 
             {/* HEADER - Only show if NOT in session mode (native frame used there) */}
-            {!window.location.search.includes('mode=session') && window.electronAPI && (
-                <TitleBar minimize={() => window.electronAPI.minimize()} close={() => window.electronAPI.close()} />
-            )}
+            {
+                !window.location.search.includes('mode=session') && window.electronAPI && (
+                    <TitleBar minimize={() => window.electronAPI.minimize()} close={() => window.electronAPI.close()} />
+                )
+            }
 
             {/* SETTINGS MODAL REMOVED FOR PRODUCTION */}
             {/* REQUEST MODAL */}
-            {requestModal && (
-                <div style={{
-                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-                    background: 'rgba(0,0,0,0.9)', zIndex: 9999,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center'
-                }}>
-                    <div className="glass-card" style={{ padding: 40, textAlign: 'center', border: '2px solid #4CAF50' }}>
-                        <h1>🔔 Pedido de Conexão!</h1>
-                        <p style={{ fontSize: 18 }}>ID <strong>{requestModal.from}</strong> quer conectar.</p>
-                        <div style={{ marginTop: 20, display: 'flex', gap: 20, justifyContent: 'center' }}>
-                            <button className="btn-secondary" style={{ background: 'red' }} onClick={() => setRequestModal(null)}>BLOQUEAR</button>
-                            <button className="btn-primary" style={{ fontSize: 18, padding: '10px 40px' }} onClick={acceptConnection}>ACEITAR</button>
+            {
+                requestModal && (
+                    <div style={{
+                        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                        background: 'rgba(0,0,0,0.9)', zIndex: 9999,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center'
+                    }}>
+                        <div className="glass-card" style={{ padding: 40, textAlign: 'center', border: '2px solid #4CAF50' }}>
+                            <h1>🔔 Pedido de Conexão!</h1>
+                            <p style={{ fontSize: 18 }}>ID <strong>{requestModal.from}</strong> quer conectar.</p>
+                            <div style={{ marginTop: 20, display: 'flex', gap: 20, justifyContent: 'center' }}>
+                                <button className="btn-secondary" style={{ background: 'red' }} onClick={() => setRequestModal(null)}>BLOQUEAR</button>
+                                <button className="btn-primary" style={{ fontSize: 18, padding: '10px 40px' }} onClick={acceptConnection}>ACEITAR</button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {/* SETTINGS MODAL REMOVED FOR PRODUCTION */}
 
             {/* MAIN APP CONTAINER - Only show if NOT in session role */}
-            {role !== 'client' && (
-                <div className="app-container">
-                    <div style={{ textAlign: 'center', marginBottom: 20, position: 'relative' }}>
-                        <h1 style={{ fontSize: '1.8rem', margin: 0 }}>VConectY <span style={{ color: '#4CAF50' }}>Global</span></h1>
-                        <small>{status}</small>
+            {
+                role !== 'client' && (
+                    <div className="app-container">
+                        <div style={{ textAlign: 'center', marginBottom: 20, position: 'relative' }}>
+                            <h1 style={{ fontSize: '1.8rem', margin: 0 }}>VConectY <span style={{ color: '#4CAF50' }}>Global</span></h1>
+                            <small>{status}</small>
 
-                        {/* TRIAL STATUS BAR - Always show if not PRO */}
-                        {license?.type !== 'pro' && (
+                            {/* TRIAL STATUS BAR - FORCED VISIBLE FOR DEBUG */}
                             <div style={{
                                 marginTop: '10px',
                                 background: '#333', padding: '8px', borderRadius: '5px',
                                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '15px',
-                                border: '1px solid #555'
+                                border: '2px solid red' // Highlight for user
                             }}>
-                                <span style={{ color: 'orange', fontWeight: 'bold' }}>⏳ DESCONTAGEM: {trialTimer}</span>
-                                <button
-                                    onClick={() => setShowActivationModal(true)}
-                                    style={{
-                                        background: '#4CAF50', color: 'white', border: 'none',
-                                        padding: '4px 10px', borderRadius: '3px', cursor: 'pointer',
-                                        fontWeight: 'bold', fontSize: '0.8rem'
-                                    }}
-                                >
-                                    🔑 ATIVAR AGORA
-                                </button>
-                            </div>
-                        )}
+                                <span style={{ color: 'orange', fontWeight: 'bold' }}>
+                                    ⏳ {license?.type === 'pro' ? 'ATIVADO (PRO)' : `TESTE: ${trialTimer}`}
+                                </span>
 
-                        {license?.type === 'pro' && (
-                            <div style={{
-                                position: 'absolute', top: 0, right: 0,
-                                color: '#4CAF50', fontSize: '10px', fontWeight: 'bold',
-                                border: '1px solid #4CAF50', padding: '2px 6px', borderRadius: '4px'
-                            }}>
-                                PRO 💎
+                                {/* Always show button unless Activated */}
+                                {license?.type !== 'pro' && (
+                                    <button
+                                        onClick={() => {
+                                            console.log('[UI] Opening Activation Modal');
+                                            setShowActivationModal(true);
+                                            // window.alert('Abrindo Janela de Ativação...'); // Debug
+                                        }}
+                                        style={{
+                                            background: '#4CAF50', color: 'white', border: 'none',
+                                            padding: '4px 10px', borderRadius: '3px', cursor: 'pointer',
+                                            fontWeight: 'bold', fontSize: '0.8rem'
+                                        }}
+                                    >
+                                        🔑 ATIVAR AGORA
+                                    </button>
+                                )}
                             </div>
-                        )}
-                    </div>
 
-                    <div className="main-grid">
-                        {/* MY ID CARD */}
-                        <div className="card glass-card">
-                            <h3>Meu Endereço</h3>
-                            <div className="code-display" style={{ fontSize: 32, textAlign: 'center', margin: '20px 0', letterSpacing: 2 }}>
-                                {myId}
+                            {license?.type === 'pro' && (
+                                <div style={{
+                                    position: 'absolute', top: 0, right: 0,
+                                    color: '#4CAF50', fontSize: '10px', fontWeight: 'bold',
+                                    border: '1px solid #4CAF50', padding: '2px 6px', borderRadius: '4px'
+                                }}>
+                                    PRO 💎
+                                </div>
+                            )}
+
+                            {/* Botão de Configurações de Updates */}
+                            <button
+                                onClick={() => setShowUpdateSettings(true)}
+                                style={{
+                                    position: 'absolute',
+                                    top: 0,
+                                    left: 0,
+                                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                    color: 'white',
+                                    border: 'none',
+                                    padding: '6px 12px',
+                                    borderRadius: '5px',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    fontWeight: 'bold',
+                                    boxShadow: '0 2px 8px rgba(102, 126, 234, 0.3)',
+                                    transition: 'all 0.2s'
+                                }}
+                                onMouseOver={(e) => e.target.style.transform = 'scale(1.05)'}
+                                onMouseOut={(e) => e.target.style.transform = 'scale(1)'}
+                            >
+                                ⛙️ Updates
+                            </button>
+
+                            {/* Botão Dashboard */}
+                            <button
+                                onClick={() => setShowDashboard(true)}
+                                style={{
+                                    position: 'absolute',
+                                    top: 0,
+                                    left: '120px',
+                                    background: 'linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%)',
+                                    color: 'white',
+                                    border: 'none',
+                                    padding: '6px 12px',
+                                    borderRadius: '5px',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    fontWeight: 'bold',
+                                    boxShadow: '0 2px 8px rgba(76, 175, 80, 0.3)',
+                                    transition: 'all 0.2s'
+                                }}
+                                onMouseOver={(e) => e.target.style.transform = 'scale(1.05)'}
+                                onMouseOut={(e) => e.target.style.transform = 'scale(1)'}
+                            >
+                                📊 Dashboard
+                            </button>
+
+                            {/* Botão File Transfer */}
+                            <button
+                                onClick={() => setShowFileTransfer(true)}
+                                style={{
+                                    position: 'absolute',
+                                    top: 0,
+                                    left: '250px',
+                                    background: 'linear-gradient(135deg, #FF9800 0%, #F57C00 100%)',
+                                    color: 'white',
+                                    border: 'none',
+                                    padding: '6px 12px',
+                                    borderRadius: '5px',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    fontWeight: 'bold',
+                                    boxShadow: '0 2px 8px rgba(255, 152, 0, 0.3)',
+                                    transition: 'all 0.2s'
+                                }}
+                                onMouseOver={(e) => e.target.style.transform = 'scale(1.05)'}
+                                onMouseOut={(e) => e.target.style.transform = 'scale(1)'}
+                            >
+                                📁 Arquivos
+                            </button>
+                        </div>
+
+                        <div className="main-grid">
+                            {/* MY ID CARD */}
+                            <div className="card glass-card">
+                                <h3>Meu Endereço</h3>
+                                <div className="code-display" style={{ fontSize: 32, textAlign: 'center', margin: '20px 0', letterSpacing: 2 }}>
+                                    {myId}
+                                </div>
+                                <p style={{ fontSize: 12, opacity: 0.7, textAlign: 'center' }}>Seu ID fixo para conexões globais.</p>
+
+                                {/* Access Password Config */}
+                                <div style={{ marginTop: 15, borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 15 }}>
+                                    <h4 style={{ fontSize: 13, opacity: 0.7, marginBottom: 8, textAlign: 'left' }}>🔐 Senha de Acesso</h4>
+                                    <input
+                                        type="password"
+                                        className="modern-input"
+                                        placeholder="Senha (opcional)"
+                                        value={myAccessPassword}
+                                        onChange={(e) => {
+                                            setMyAccessPassword(e.target.value);
+                                            localStorage.setItem('vconecty_access_pwd', e.target.value);
+                                        }}
+                                        style={{ fontSize: 13, padding: 8, width: '100%' }}
+                                    />
+                                    <small style={{ opacity: 0.5, fontSize: 10, marginTop: 5, display: 'block', textAlign: 'left' }}>
+                                        Proteja seu PC com senha obrigatória
+                                    </small>
+                                </div>
                             </div>
-                            <p style={{ fontSize: 12, opacity: 0.7, textAlign: 'center' }}>Seu ID fixo para conexões globais.</p>
 
-                            {/* Access Password Config */}
-                            <div style={{ marginTop: 15, borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 15 }}>
-                                <h4 style={{ fontSize: 13, opacity: 0.7, marginBottom: 8, textAlign: 'left' }}>🔐 Senha de Acesso</h4>
+                            {/* CONNECT CARD */}
+                            <div className="card glass-card active-card">
+                                <h3>Acessar Computador</h3>
+                                <input
+                                    className="modern-input"
+                                    placeholder="Digite o ID do Parceiro (Ex: 123 456 789)"
+                                    value={targetId}
+                                    onChange={e => setTargetId(e.target.value)}
+                                    style={{ marginBottom: 10, fontSize: 18, textAlign: 'center' }}
+                                />
                                 <input
                                     type="password"
                                     className="modern-input"
-                                    placeholder="Senha (opcional)"
-                                    value={myAccessPassword}
-                                    onChange={(e) => {
-                                        setMyAccessPassword(e.target.value);
-                                        localStorage.setItem('vconecty_access_pwd', e.target.value);
-                                    }}
-                                    style={{ fontSize: 13, padding: 8, width: '100%' }}
+                                    placeholder="🔐 Senha (se necessário)"
+                                    value={targetPassword}
+                                    onChange={e => setTargetPassword(e.target.value)}
+                                    style={{ marginBottom: 20, fontSize: 14, textAlign: 'center' }}
                                 />
-                                <small style={{ opacity: 0.5, fontSize: 10, marginTop: 5, display: 'block', textAlign: 'left' }}>
-                                    Proteja seu PC com senha obrigatória
-                                </small>
+                                <button className="btn-primary" onClick={connectToPartner}>CONECTAR</button>
+
+                                {/* Recent Connections */}
+                                {recentConnections.length > 0 && (
+                                    <div style={{ marginTop: 20, borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 15 }}>
+                                        <h4 style={{ fontSize: 14, opacity: 0.7, marginBottom: 10 }}>Conexões Recentes</h4>
+                                        <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+                                            {recentConnections
+                                                .sort((a, b) => (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0))
+                                                .map((conn, idx) => (
+                                                    <div key={idx} style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'space-between',
+                                                        padding: '8px 10px',
+                                                        background: 'rgba(255,255,255,0.05)',
+                                                        borderRadius: 6,
+                                                        marginBottom: 8,
+                                                        fontSize: 13
+                                                    }}>
+                                                        <div style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                            <div style={{ fontWeight: 500 }}>{conn.name}</div>
+                                                            <div style={{ opacity: 0.6, fontSize: 11 }}>{conn.id}</div>
+                                                        </div>
+                                                        <div style={{ display: 'flex', gap: 8 }}>
+                                                            <button
+                                                                onClick={() => toggleFavorite(conn.id)}
+                                                                style={{
+                                                                    background: 'transparent',
+                                                                    border: 'none',
+                                                                    cursor: 'pointer',
+                                                                    fontSize: 16,
+                                                                    padding: 4
+                                                                }}
+                                                                title="Favoritar"
+                                                            >
+                                                                {conn.favorite ? '⭐' : '☆'}
+                                                            </button>
+                                                            <button
+                                                                onClick={() => {
+                                                                    setTargetId(conn.id);
+                                                                    connectToPartner();
+                                                                }}
+                                                                style={{
+                                                                    background: '#4CAF50',
+                                                                    border: 'none',
+                                                                    borderRadius: 4,
+                                                                    color: 'white',
+                                                                    cursor: 'pointer',
+                                                                    fontSize: 11,
+                                                                    padding: '4px 8px'
+                                                                }}
+                                                                title="Conectar"
+                                                            >
+                                                                🔗
+                                                            </button>
+                                                            <button
+                                                                onClick={() => removeFromRecents(conn.id)}
+                                                                style={{
+                                                                    background: 'transparent',
+                                                                    border: 'none',
+                                                                    cursor: 'pointer',
+                                                                    fontSize: 14,
+                                                                    padding: 4,
+                                                                    opacity: 0.5
+                                                                }}
+                                                                title="Remover"
+                                                            >
+                                                                ✕
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
-
-                        {/* CONNECT CARD */}
-                        <div className="card glass-card active-card">
-                            <h3>Acessar Computador</h3>
-                            <input
-                                className="modern-input"
-                                placeholder="Digite o ID do Parceiro (Ex: 123 456 789)"
-                                value={targetId}
-                                onChange={e => setTargetId(e.target.value)}
-                                style={{ marginBottom: 10, fontSize: 18, textAlign: 'center' }}
-                            />
-                            <input
-                                type="password"
-                                className="modern-input"
-                                placeholder="🔐 Senha (se necessário)"
-                                value={targetPassword}
-                                onChange={e => setTargetPassword(e.target.value)}
-                                style={{ marginBottom: 20, fontSize: 14, textAlign: 'center' }}
-                            />
-                            <button className="btn-primary" onClick={connectToPartner}>CONECTAR</button>
-
-                            {/* Recent Connections */}
-                            {recentConnections.length > 0 && (
-                                <div style={{ marginTop: 20, borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 15 }}>
-                                    <h4 style={{ fontSize: 14, opacity: 0.7, marginBottom: 10 }}>Conexões Recentes</h4>
-                                    <div style={{ maxHeight: 200, overflowY: 'auto' }}>
-                                        {recentConnections
-                                            .sort((a, b) => (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0))
-                                            .map((conn, idx) => (
-                                                <div key={idx} style={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'space-between',
-                                                    padding: '8px 10px',
-                                                    background: 'rgba(255,255,255,0.05)',
-                                                    borderRadius: 6,
-                                                    marginBottom: 8,
-                                                    fontSize: 13
-                                                }}>
-                                                    <div style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                        <div style={{ fontWeight: 500 }}>{conn.name}</div>
-                                                        <div style={{ opacity: 0.6, fontSize: 11 }}>{conn.id}</div>
-                                                    </div>
-                                                    <div style={{ display: 'flex', gap: 8 }}>
-                                                        <button
-                                                            onClick={() => toggleFavorite(conn.id)}
-                                                            style={{
-                                                                background: 'transparent',
-                                                                border: 'none',
-                                                                cursor: 'pointer',
-                                                                fontSize: 16,
-                                                                padding: 4
-                                                            }}
-                                                            title="Favoritar"
-                                                        >
-                                                            {conn.favorite ? '⭐' : '☆'}
-                                                        </button>
-                                                        <button
-                                                            onClick={() => {
-                                                                setTargetId(conn.id);
-                                                                connectToPartner();
-                                                            }}
-                                                            style={{
-                                                                background: '#4CAF50',
-                                                                border: 'none',
-                                                                borderRadius: 4,
-                                                                color: 'white',
-                                                                cursor: 'pointer',
-                                                                fontSize: 11,
-                                                                padding: '4px 8px'
-                                                            }}
-                                                            title="Conectar"
-                                                        >
-                                                            🔗
-                                                        </button>
-                                                        <button
-                                                            onClick={() => removeFromRecents(conn.id)}
-                                                            style={{
-                                                                background: 'transparent',
-                                                                border: 'none',
-                                                                cursor: 'pointer',
-                                                                fontSize: 14,
-                                                                padding: 4,
-                                                                opacity: 0.5
-                                                            }}
-                                                            title="Remover"
-                                                        >
-                                                            ✕
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
+                    </div >
+                )
+            }
 
             {/* CREDITS FOOTER */}
             <div style={{
@@ -1393,126 +1636,587 @@ function App() {
             </div>
 
             {/* DEBUG OVERLAY (Client Only) */}
-            {role === 'client' && (
-                <div style={{
-                    position: 'fixed',
-                    top: 10,
-                    right: 140, // Avoid overlap with D-pad if any
-                    background: 'rgba(0,0,0,0.8)',
-                    color: '#0f0',
-                    padding: '10px',
-                    borderRadius: '5px',
-                    fontFamily: 'monospace',
-                    fontSize: '11px',
-                    border: `2px solid ${debugInfo.dcStatus === 'open' ? '#0f0' : '#f00'}`,
-                    zIndex: 9999
-                }}>
-                    <div>DC: <strong>{debugInfo.dcStatus.toUpperCase()}</strong></div>
-                    <div>Cmd: {debugInfo.lastCmd} ({debugInfo.cmdCount})</div>
-                    <button onClick={() => {
-                        if (dataChannelRef.current?.readyState === 'open') {
-                            dataChannelRef.current.send(JSON.stringify({ type: 'mouse-move', x: 0.5, y: 0.5 }));
-                            alert('Comando de teste enviado! Mouse deveria ir para o centro.');
-                        } else {
-                            alert('DataChannel NÃO ESTÁ ABERTO! Conexão falhou.');
-                        }
-                    }} style={{
-                        marginTop: '5px',
-                        padding: '3px 6px',
-                        fontSize: '10px',
-                        cursor: 'pointer'
+            {
+                role === 'client' && (
+                    <div style={{
+                        position: 'fixed',
+                        top: 10,
+                        right: 140, // Avoid overlap with D-pad if any
+                        background: 'rgba(0,0,0,0.8)',
+                        color: '#0f0',
+                        padding: '10px',
+                        borderRadius: '5px',
+                        fontFamily: 'monospace',
+                        fontSize: '11px',
+                        border: `2px solid ${debugInfo.dcStatus === 'open' ? '#0f0' : '#f00'}`,
+                        zIndex: 9999
                     }}>
-                        🎯 Test Mouse
-                    </button>
-                </div>
-            )}
+                        <div>DC: <strong>{debugInfo.dcStatus.toUpperCase()}</strong></div>
+                        <div>Cmd: {debugInfo.lastCmd} ({debugInfo.cmdCount})</div>
+                        <button onClick={() => {
+                            if (dataChannelRef.current?.readyState === 'open') {
+                                dataChannelRef.current.send(JSON.stringify({ type: 'mouse-move', x: 0.5, y: 0.5 }));
+                                alert('Comando de teste enviado! Mouse deveria ir para o centro.');
+                            } else {
+                                alert('DataChannel NÃO ESTÁ ABERTO! Conexão falhou.');
+                            }
+                        }} style={{
+                            marginTop: '5px',
+                            padding: '3px 6px',
+                            fontSize: '10px',
+                            cursor: 'pointer'
+                        }}>
+                            🎯 Test Mouse
+                        </button>
+                    </div>
+                )
+            }
 
             {/* TEST CONTROLS PANEL (Client Only) */}
-            {role === 'client' && debugInfo.dcStatus === 'open' && (
-                <div style={{
-                    position: 'fixed',
-                    bottom: 60,
-                    left: 10,
-                    background: 'rgba(20,20,40,0.95)',
-                    color: '#fff',
-                    padding: '15px',
-                    borderRadius: '8px',
-                    border: '2px solid #4a9eff',
-                    zIndex: 9998,
-                    minWidth: '200px'
-                }}>
-                    <div style={{ marginBottom: '10px', fontWeight: 'bold', fontSize: '14px' }}>
-                        🎮 Controles de Teste
+            {
+                role === 'client' && debugInfo.dcStatus === 'open' && (
+                    <div style={{
+                        position: 'fixed',
+                        bottom: 60,
+                        left: 10,
+                        background: 'rgba(20,20,40,0.95)',
+                        color: '#fff',
+                        padding: '15px',
+                        borderRadius: '8px',
+                        border: '2px solid #4a9eff',
+                        zIndex: 9998,
+                        minWidth: '200px'
+                    }}>
+                        <div style={{ marginBottom: '10px', fontWeight: 'bold', fontSize: '14px' }}>
+                            🎮 Controles de Teste
+                        </div>
+
+                        <button onClick={() => {
+                            dataChannelRef.current.send(JSON.stringify({ type: 'mouse-move', x: 0.1, y: 0.1 }));
+                        }} style={{
+                            width: '100%',
+                            padding: '8px',
+                            marginBottom: '5px',
+                            background: '#4a9eff',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontSize: '12px'
+                        }}>
+                            ↖️ Mouse para Canto Superior
+                        </button>
+
+                        <button onClick={() => {
+                            dataChannelRef.current.send(JSON.stringify({ type: 'mouse-move', x: 0.5, y: 0.5 }));
+                        }} style={{
+                            width: '100%',
+                            padding: '8px',
+                            marginBottom: '5px',
+                            background: '#4a9eff',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontSize: '12px'
+                        }}>
+                            🎯 Mouse para Centro
+                        </button>
+
+                        <button onClick={() => {
+                            dataChannelRef.current.send(JSON.stringify({ type: 'mouse-down', button: 'left' }));
+                            setTimeout(() => {
+                                dataChannelRef.current.send(JSON.stringify({ type: 'mouse-up', button: 'left' }));
+                            }, 100);
+                        }} style={{
+                            width: '100%',
+                            padding: '8px',
+                            marginBottom: '5px',
+                            background: '#ff9800',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontSize: '12px'
+                        }}>
+                            🖱️ Click Esquerdo
+                        </button>
+
+                        <button onClick={() => {
+                            dataChannelRef.current.send(JSON.stringify({ type: 'key-press', key: 'a' }));
+                        }} style={{
+                            width: '100%',
+                            padding: '8px',
+                            background: '#8bc34a',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontSize: '12px'
+                        }}>
+                            ⌨️ Tecla "A"
+                        </button>
                     </div>
+                )
+            }
 
-                    <button onClick={() => {
-                        dataChannelRef.current.send(JSON.stringify({ type: 'mouse-move', x: 0.1, y: 0.1 }));
-                    }} style={{
-                        width: '100%',
-                        padding: '8px',
-                        marginBottom: '5px',
-                        background: '#4a9eff',
-                        color: '#fff',
-                        border: 'none',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        fontSize: '12px'
+            {/* ACTIVATION MODAL */}
+            {
+                showActivationModal && (
+                    <div style={{
+                        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                        background: 'rgba(0,0,0,0.95)', zIndex: 20000,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        backdropFilter: 'blur(10px)'
                     }}>
-                        ↖️ Mouse para Canto Superior
-                    </button>
+                        <div className="glass-card" style={{
+                            padding: '40px',
+                            maxWidth: '450px',
+                            width: '90%',
+                            textAlign: 'center',
+                            border: '2px solid #4CAF50',
+                            boxShadow: '0 0 30px rgba(76, 175, 80, 0.3)'
+                        }}>
+                            <h2 style={{ color: '#4CAF50', marginBottom: '20px' }}>📦 ATIVAR VCONECTY PRO</h2>
 
-                    <button onClick={() => {
-                        dataChannelRef.current.send(JSON.stringify({ type: 'mouse-move', x: 0.5, y: 0.5 }));
-                    }} style={{
-                        width: '100%',
-                        padding: '8px',
-                        marginBottom: '5px',
-                        background: '#4a9eff',
-                        color: '#fff',
-                        border: 'none',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        fontSize: '12px'
-                    }}>
-                        🎯 Mouse para Centro
-                    </button>
+                            <div style={{ marginBottom: '25px', textAlign: 'left', background: 'rgba(255,255,255,0.05)', padding: '15px', borderRadius: '8px' }}>
+                                <label style={{ fontSize: '12px', opacity: 0.7, display: 'block', marginBottom: '5px' }}>ID DO COMPUTADOR (Envie para o suporte):</label>
+                                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                    <code style={{
+                                        flex: 1, background: '#000', padding: '10px',
+                                        borderRadius: '4px', fontSize: '16px', color: '#4CAF50',
+                                        fontWeight: 'bold', border: '1px solid #333',
+                                        wordBreak: 'break-all'
+                                    }}>
+                                        {license?.hwid || 'BUSCANDO ID...'}
+                                    </code>
+                                    <button
+                                        onClick={() => fetchLicense(1)}
+                                        style={{ background: '#333', border: '1px solid #555', color: 'white', padding: '10px', borderRadius: '4px', cursor: 'pointer' }}
+                                        title="Atualizar ID"
+                                    >
+                                        🔄
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            if (license?.hwid) {
+                                                navigator.clipboard.writeText(license.hwid);
+                                                showToast('ID Copiado!', 'success');
+                                            }
+                                        }}
+                                        style={{ background: '#444', border: 'none', color: 'white', padding: '10px', borderRadius: '4px', cursor: 'pointer' }}
+                                    >
+                                        📋
+                                    </button>
+                                </div>
+                            </div>
 
-                    <button onClick={() => {
-                        dataChannelRef.current.send(JSON.stringify({ type: 'mouse-down', button: 'left' }));
-                        setTimeout(() => {
-                            dataChannelRef.current.send(JSON.stringify({ type: 'mouse-up', button: 'left' }));
-                        }, 100);
-                    }} style={{
-                        width: '100%',
-                        padding: '8px',
-                        marginBottom: '5px',
-                        background: '#ff9800',
-                        color: '#fff',
-                        border: 'none',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        fontSize: '12px'
-                    }}>
-                        🖱️ Click Esquerdo
-                    </button>
+                            <div style={{ marginBottom: '25px', textAlign: 'left' }}>
+                                <label style={{ fontSize: '12px', opacity: 0.7, display: 'block', marginBottom: '5px' }}>CHAVE DE ATIVAÇÃO:</label>
+                                <input
+                                    type="text"
+                                    className="modern-input"
+                                    placeholder="AAAA-BBBB-CCCC-DDDD"
+                                    value={activationKey}
+                                    onChange={(e) => setActivationKey(e.target.value.toUpperCase())}
+                                    style={{ width: '100%', fontSize: '18px', textAlign: 'center', letterSpacing: '2px' }}
+                                />
+                            </div>
 
-                    <button onClick={() => {
-                        dataChannelRef.current.send(JSON.stringify({ type: 'key-press', key: 'a' }));
-                    }} style={{
-                        width: '100%',
-                        padding: '8px',
-                        background: '#8bc34a',
-                        color: '#fff',
-                        border: 'none',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        fontSize: '12px'
+                            <div style={{ display: 'flex', gap: '15px' }}>
+                                <button
+                                    className="btn-secondary"
+                                    style={{ flex: 1 }}
+                                    onClick={() => setShowActivationModal(false)}
+                                >
+                                    FECHAR
+                                </button>
+                                <button
+                                    className="btn-primary"
+                                    style={{ flex: 2, fontSize: '1.1rem' }}
+                                    onClick={async () => {
+                                        if (!activationKey) return showToast('Insira a chave!', 'error');
+                                        const success = await window.electronAPI.activateLicense(activationKey);
+                                        if (success) {
+                                            showToast('CONCLUÍDO! Reiniciando...', 'success');
+                                            setTimeout(() => window.location.reload(), 2000);
+                                        } else {
+                                            showToast('Chave inválida!', 'error');
+                                        }
+                                    }}
+                                >
+                                    ✅ ATIVAR AGORA
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+
+            {/* Toast Notification */}
+            {
+                toast && (
+                    <div style={{
+                        position: 'fixed',
+                        bottom: '20px',
+                        right: '20px',
+                        padding: '15px 20px',
+                        background: toast.type === 'error' ? '#f44336' : toast.type === 'success' ? '#4CAF50' : '#2196F3',
+                        color: 'white',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                        zIndex: 100000,
+                        animation: 'slideIn 0.3s ease-out'
                     }}>
-                        ⌨️ Tecla "A"
+                        {toast.message}
+                    </div>
+                )
+            }
+
+            {/* FileTransfer Modal */}
+            {
+                showFileTransfer && (
+                    <div style={{
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        height: '100%',
+                        background: '#121212',
+                        zIndex: 9998,
+                        overflow: 'hidden',
+                        display: 'flex',
+                        flexDirection: 'column'
+                    }}>
+                        <div style={{
+                            background: 'linear-gradient(135deg, #FF9800 0%, #F57C00 100%)',
+                            padding: '20px',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            borderBottom: '2px solid #FF9800'
+                        }}>
+                            <h2 style={{ margin: 0, color: '#fff', fontSize: '1.5rem' }}>
+                                📁 Transferência de Arquivos
+                            </h2>
+                            <button
+                                onClick={() => setShowFileTransfer(false)}
+                                style={{
+                                    background: 'rgba(255,255,255,0.2)',
+                                    border: 'none',
+                                    color: '#fff',
+                                    width: '40px',
+                                    height: '40px',
+                                    borderRadius: '50%',
+                                    cursor: 'pointer',
+                                    fontSize: '20px',
+                                    fontWeight: 'bold'
+                                }}
+                            >
+                                ✕
+                            </button>
+                        </div>
+                        <div style={{ flex: 1, overflow: 'auto', padding: '20px' }}>
+                            <FileTransfer
+                                isConnected={connected}
+                                onSendFile={() => { }}
+                                myId={myId}
+                                remoteId={targetId}
+                            />
+                        </div>
+                    </div>
+                )
+            }
+
+            {/* Update Settings Modal */}
+
+            {/* Dashboard Modal */}
+            {
+                showDashboard && (
+                    <div style={{
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        height: '100%',
+                        background: '#121212',
+                        zIndex: 9998,
+                        overflow: 'auto'
+                    }}>
+                        <div style={{
+                            position: 'sticky',
+                            top: 0,
+                            background: 'linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%)',
+                            padding: '20px',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            borderBottom: '2px solid #4CAF50',
+                            zIndex: 10
+                        }}>
+                            <h2 style={{ margin: 0, color: '#fff', fontSize: '1.5rem' }}>
+                                📊 Dashboard VConectY
+                            </h2>
+                            <button
+                                onClick={() => setShowDashboard(false)}
+                                style={{
+                                    background: 'rgba(255,255,255,0.2)',
+                                    border: 'none',
+                                    color: '#fff',
+                                    width: '40px',
+                                    height: '40px',
+                                    borderRadius: '50%',
+                                    cursor: 'pointer',
+                                    fontSize: '20px',
+                                    fontWeight: 'bold'
+                                }}
+                            >
+                                ✕
+                            </button>
+                        </div>
+                        <Dashboard
+                            myId={myId}
+                            onConnect={(remoteId, password) => {
+                                setShowDashboard(false);
+                                connectTo(remoteId, password);
+                            }}
+                        />
+                    </div>
+                )
+            }
+
+            {
+                showUpdateSettings && (
+                    <div style={{
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        height: '100%',
+                        background: 'rgba(0, 0, 0, 0.95)',
+                        zIndex: 999999,
+                        overflow: 'auto',
+                        padding: '20px'
+                    }}>
+                        <div style={{
+                            maxWidth: '900px',
+                            margin: '0 auto',
+                            background: '#1a1a1a',
+                            borderRadius: '16px',
+                            padding: '0',
+                            boxShadow: '0 20px 60px rgba(0,0,0,0.5)'
+                        }}>
+                            {/* Header */}
+                            <div style={{
+                                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                padding: '20px 30px',
+                                borderRadius: '16px 16px 0 0',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center'
+                            }}>
+                                <h2 style={{ margin: 0, color: 'white', fontSize: '1.5rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <span>⚙️</span>
+                                    Configurações de Atualização
+                                </h2>
+                                <button
+                                    onClick={() => setShowUpdateSettings(false)}
+                                    style={{
+                                        background: 'rgba(255,255,255,0.2)',
+                                        border: 'none',
+                                        color: 'white',
+                                        fontSize: '24px',
+                                        width: '40px',
+                                        height: '40px',
+                                        borderRadius: '50%',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.2s'
+                                    }}
+                                    onMouseOver={(e) => e.target.style.background = 'rgba(255,255,255,0.3)'}
+                                    onMouseOut={(e) => e.target.style.background = 'rgba(255,255,255,0.2)'}
+                                >
+                                    ✕
+                                </button>
+                            </div>
+
+                            {/* Content */}
+                            <div style={{ padding: '30px' }}>
+                                <UpdateSettings />
+                                <UpdateScheduler />
+                                <BetaOptIn />
+                                <DiagnosticsPanel />
+                                <OfflineUpdateInstaller />
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+
+            {/* Botão Flutuante de Configurações - SEMPRE VISÍVEL */}
+            <button
+                onClick={() => setShowUpdateSettings(true)}
+                style={{
+                    position: 'fixed',
+                    bottom: '20px',
+                    right: '20px',
+                    width: '60px',
+                    height: '60px',
+                    borderRadius: '50%',
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    border: 'none',
+                    color: 'white',
+                    fontSize: '28px',
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 20px rgba(102, 126, 234, 0.4)',
+                    zIndex: 999997,
+                    transition: 'all 0.3s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                }}
+                onMouseOver={(e) => {
+                    e.target.style.transform = 'scale(1.1) rotate(90deg)';
+                    e.target.style.boxShadow = '0 6px 30px rgba(102, 126, 234, 0.6)';
+                }}
+                onMouseOut={(e) => {
+                    e.target.style.transform = 'scale(1) rotate(0deg)';
+                    e.target.style.boxShadow = '0 4px 20px rgba(102, 126, 234, 0.4)';
+                }}
+                title="⚙️ Configurações de Atualização"
+            >
+                ⚙️
+            </button>
+
+            {/* Update Notification (Desktop Only) */}
+            {
+                window.electronAPI && (
+                    <UpdateNotification
+                        updateInfo={updateInfo}
+                        downloadProgress={updateDownloadProgress}
+                        status={updateStatus}
+                        onUpdate={() => {
+                            console.log('[UPDATE] Iniciando download...');
+                            setUpdateStatus('downloading');
+                            window.electronAPI.downloadUpdate();
+                        }}
+                        onLater={() => {
+                            console.log('[UPDATE] Adiado pelo usuário');
+                            setUpdateStatus(null);
+                            setUpdateInfo(null);
+                        }}
+                        onInstall={() => {
+                            console.log('[UPDATE] Instalando e reiniciando...');
+                            window.electronAPI.installUpdate();
+                        }}
+                    />
+                )
+            }
+
+            {/* Update Notification (Android Only) */}
+            {
+                !window.electronAPI && updateInfo && (
+                    <UpdateNotification
+                        updateInfo={updateInfo}
+                        downloadProgress={updateDownloadProgress}
+                        status={updateStatus}
+                        onUpdate={async () => {
+                            console.log('[UPDATE] Iniciando download Android...');
+                            setUpdateStatus('downloading');
+                            try {
+                                const UpdatePlugin = (await import('./plugins/UpdatePlugin')).default;
+                                await UpdatePlugin.downloadAndInstall({ downloadUrl: updateInfo.downloadUrl });
+                            } catch (e) {
+                                console.error('[UPDATE] Erro:', e);
+                                showToast('Erro ao baixar atualização', 'error');
+                                setUpdateStatus(null);
+                            }
+                        }}
+                        onLater={() => {
+                            console.log('[UPDATE] Adiado pelo usuário');
+                            setUpdateStatus(null);
+                            setUpdateInfo(null);
+                        }}
+                        onInstall={() => {
+                            console.log('[UPDATE] APK já instalado automaticamente');
+                            showToast('APK instalado!', 'success');
+                        }}
+                    />
+                )
+            }
+
+            {/* Floating Chat Button */}
+            {
+                connected && !showChat && (
+                    <button
+                        onClick={() => setShowChat(true)}
+                        style={{
+                            position: 'fixed',
+                            bottom: '30px',
+                            right: '30px',
+                            width: '60px',
+                            height: '60px',
+                            borderRadius: '50%',
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            border: 'none',
+                            color: 'white',
+                            fontSize: '28px',
+                            cursor: 'pointer',
+                            boxShadow: '0 4px 20px rgba(102, 126, 234, 0.5)',
+                            zIndex: 999998
+                        }}
+                        title="Chat"
+                    >
+                        💬
                     </button>
-                </div>
-            )}
-        </div>
+                )
+            }
+
+            {/* Chat Modal */}
+            {
+                showChat && (
+                    <div style={{
+                        position: 'fixed',
+                        bottom: '30px',
+                        right: '30px',
+                        width: '400px',
+                        height: '600px',
+                        zIndex: 999999,
+                        boxShadow: '0 8px 40px rgba(0,0,0,0.3)',
+                        borderRadius: '16px',
+                        overflow: 'hidden'
+                    }}>
+                        <div style={{ height: '100%', background: '#1a1a1a', borderRadius: '16px', border: '2px solid #667eea', position: 'relative' }}>
+                            <Chat
+                                isConnected={connected}
+                                myId={myId}
+                                remoteId={targetId}
+                                remoteName={`PC ${targetId}`}
+                                onSendMessage={(msg) => console.log('Msg:', msg)}
+                            />
+                            <button
+                                onClick={() => setShowChat(false)}
+                                style={{
+                                    position: 'absolute',
+                                    top: '15px',
+                                    right: '15px',
+                                    background: 'rgba(255,255,255,0.2)',
+                                    border: 'none',
+                                    color: '#fff',
+                                    width: '32px',
+                                    height: '32px',
+                                    borderRadius: '50%',
+                                    cursor: 'pointer',
+                                    fontSize: '16px',
+                                    zIndex: 10
+                                }}
+                            >
+                                ✕
+                            </button>
+                        </div>
+                    </div>
+                )
+            }
+        </div >
     );
 }
 
