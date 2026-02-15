@@ -1,0 +1,38 @@
+{
+    "stable": {
+        "version": "1.0.1",
+        "releaseDate": "2026-02-10",
+        "downloadUrl": "https://vconecty.onrender.com/updates/desktop/VConectY-Portable-1.0.1.exe",
+        "releaseNotes": {
+            "pt-BR": "# 🎉 Versão 1.0.1 - Release Estável\n\n## ✨ Novidades\n- Sistema de auto-atualização completo\n- **20 features avançadas** implementadas",
+            "en": "# 🎉 Version 1.0.1 - Stable Release\n\n## ✨ New Features\n- Complete auto-update system\n- **20 advanced features** implemented",
+            "es": "# 🎉 Versión 1.0.1 - Release Estable\n\n## ✨ Novedades\n- Sistema de auto-actualización completo\n- **20 características avanzadas** implementadas"
+        },
+        "mandatory": false,
+        "minVersion": "0.0.0",
+        "reason": "",
+        "sha256": "",
+        "rolloutPercent": 100,
+        "cohortId": "stable-release"
+    },
+    "beta": {
+        "version": "1.1.0-beta.1",
+        "releaseDate": "2026-02-10",
+        "downloadUrl": "https://vconecty.onrender.com/updates/desktop/VConectY-Portable-1.1.0-beta.1.exe",
+        "releaseNotes": "# 🧪 Versão 1.1.0-beta.1 - Beta Release\n\n## 🚀 Em Teste\n- Nova UI de configurações\n- Otimizações de performance\n- Melhorias na sincronização de clipboard\n\n## ⚠️ Aviso\nEsta é uma versão beta. Pode conter bugs.\nUse por sua conta e risco!",
+        "mandatory": false,
+        "minVersion": "1.0.0",
+        "reason": "",
+        "sha256": ""
+    },
+    "nightly": {
+        "version": "1.2.0-alpha.20260210",
+        "releaseDate": "2026-02-10",
+        "downloadUrl": "https://vconecty.onrender.com/updates/desktop/VConectY-Portable-nightly.exe",
+        "releaseNotes": "# 🌙 Nightly Build - 2026-02-10\n\n## 🔬 Experimental\n- Build automático diário\n- Últimas mudanças do repositório\n- **NÃO RECOMENDADO** para produção\n\n## 🐛 Bugs Conhecidos\n- Pode crashar inesperadamente\n- Features incompletas",
+        "mandatory": false,
+        "minVersion": "1.0.0",
+        "reason": "",
+        "sha256": ""
+    }
+}

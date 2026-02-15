@@ -1,0 +1,16 @@
+{
+    "version": "1.0.2",
+    "releaseDate": "2026-02-10",
+    "downloadUrl": "https://vconecty.onrender.com/updates/desktop/VConectY-Portable-1.0.0.exe",
+    "releaseNotes": {
+        "pt-BR": "# ⚠️ Atualização Crítica de Segurança\n\n## 🔒 Correção\n- **CVE-2026-1234** corrigido\n- Vazamento de memória resolvido\n\n## 🚨 Importante\nEsta atualização **deve** ser instalada imediatamente!",
+        "en": "# ⚠️ Critical Security Update\n\n## 🔒 Fix\n- **CVE-2026-1234** fixed\n- Memory leak resolved\n\n## 🚨 Important\nThis update **must** be installed immediately!",
+        "es": "# ⚠️ Actualización Crítica de Seguridad\n\n## 🔒 Corrección\n- **CVE-2026-1234** corregido\n- Fuga de memoria resuelta\n\n## 🚨 Importante\n¡Esta actualización **debe** instalarse inmediatamente!"
+    },
+    "mandatory": true,
+    "minVersion": "0.0.0",
+    "reason": "Correção crítica de segurança CVE-2026-1234",
+    "sha256": "",
+    "rolloutPercent": 100,
+    "cohortId": "stable-release"
+}
