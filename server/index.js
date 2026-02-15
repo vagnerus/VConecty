@@ -17,6 +17,11 @@ const killswitchRoutes = require('./routes/killswitch');
 app.use(cors());
 app.use(express.json()); // Para receber analytics
 
+// Health Check (Rota de teste simples)
+app.get('/health', (req, res) => {
+    res.json({ status: 'ok', server: 'VConectY', time: new Date().toISOString() });
+});
+
 // Configuração Redis (Obrigatório para Vercel/Serverless)
 const REDIS_URL = process.env.REDIS_URL; // Ex: redis://:password@host:port
 let pubClient, subClient;
