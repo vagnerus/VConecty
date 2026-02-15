@@ -152,13 +152,14 @@ const io = new Server(server, {
 
 // Configurar Adapter (se Redis estiver ativo)
 if (pubClient && subClient) {
-    Promise.all([pubClient.connect(), subClient.connect()]).then(() => {
+    // ioredis conecta automaticamente por padrão. Não chamaremos .connect() manualmente.
+    // Apenas configuramos o adapter.
+    try {
         io.adapter(createAdapter(pubClient, subClient));
         console.log('[SOCKET] Redis Adapter configured');
-    }).catch(err => {
-        // ioredis connects automatically, but we catch connection errors here just in case
-        console.log('[SOCKET] Redis Adapter initialization check (ioredis connects automatically)');
-    });
+    } catch (err) {
+        console.error('[SOCKET] Failed to configure Redis Adapter:', err);
+    }
 }
 
 io.on('connection', (socket) => {
@@ -174,7 +175,7 @@ io.on('connection', (socket) => {
 
     // CLIENT CONNECT (Client signals intent to connect to Host ID)
     socket.on('client-connect', async ({ targetId, from, password }) => {
-        console.log(`[SERVER] Client ${from} requesting connection to ${targetId} with password:`, password ? 'YES' : 'NO');
+        console.log(`[SERVER] Client ${from} requesting connection to ${targetId}`);
 
         // Buscar Socket ID do Host (Agora assíncrono por causa do Redis)
         // Nota: Com Redis Adapter, pode ser que o socket não esteja nesta instância.
@@ -205,7 +206,7 @@ io.on('connection', (socket) => {
 
         // No código original do App.jsx:
         // socket.emit('join-host', myId) -> O socket entra na sala "myId"
-        // Então socket.to(data.target) funciona se data.target for o "myId" (roomId).
+        // Então socket.to(data.target).emit() funciona se data.target for o "myId" (roomId).
 
         console.log(`Forwarding offer from ${data.from || socket.id} to ${data.target}`);
         socket.to(data.target).emit('offer', { sdp: data.sdp, from: data.from || socket.id });
@@ -228,8 +229,6 @@ io.on('connection', (socket) => {
     });
 });
 
-// ... (previous code)
-
 const PORT = process.env.PORT || 3000;
 
 // Apenas iniciar o servidor se for executado diretamente (não na Vercel)
@@ -241,6 +240,13 @@ if (require.main === module) {
 
 // Exportar para Vercel (Serverless Function)
 module.exports = (req, res) => {
-    // Permitir que o servidor HTTP (com Socket.IO + Express) manipule a requisição
-    server.emit('request', req, res);
+    try {
+        // Log para debug no painel da Vercel
+        console.log(`[REQUEST] ${req.method} ${req.url}`);
+        // Permitir que o servidor HTTP (com Socket.IO + Express) manipule a requisição
+        server.emit('request', req, res);
+    } catch (error) {
+        console.error('[SERVER ERROR]', error);
+        res.status(500).send('Internal Server Error: ' + error.message);
+    }
 };
